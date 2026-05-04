@@ -62,6 +62,9 @@ Copiar do Cláudio (`~/iA/secretario-Douglas/.claude/skills/`) só o que faz sen
 - `doc-coauthoring` — escrever specs, cadências, documentação interna.
 - `claude-api` — quando mexer no bridge Node + SDK.
 
+**Skills locais do Lúcio (criadas neste projeto):**
+- `lucio-followup` — especialista em cadência e follow-up (Supabase + cadence-engine.js + WF-Lucio-Outbound + uazapi /sender/advanced). Carrega quando Douglas mencionar cadência, toque, T+0/T+9, agendar disparo, reset, janela de envio, jitter, etc.
+
 **NÃO levar (são do Cláudio/CMO/pessoal):**
 - `pitch-claudio`, `rito-semanal-cmo`, `marca-lumitech`, `analisa-instagram`
 - `envia-whats-pessoal`, `agenda-whats-pessoal` (canal pessoal Douglas, não Luminus comercial)
