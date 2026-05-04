@@ -1,0 +1,21 @@
+{
+  "_comment": "MCPs do projeto Lúcio (Modo Dev). Princípio de menor privilégio. supabase em --read-only por default — pra escrever, rodar via SQL Editor do painel ou tirar a flag temporariamente. SUPABASE_ACCESS_TOKEN e SUPABASE_PROJECT_REF saem do .env (exportar no shell antes de iniciar Claude Code, ou usar dotenv-cli).",
+  "mcpServers": {
+    "n8n-luminus": {
+      "command": ".claude/skills/n8n-architect/scripts/run-n8n-mcp.sh",
+      "args": ["luminus"]
+    },
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--read-only",
+        "--project-ref=${SUPABASE_PROJECT_REF}"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

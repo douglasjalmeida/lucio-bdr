@@ -1,0 +1,84 @@
+{
+  "name": "TEMPLATE BASE [claudio-v1]",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# TEMPLATE BASE [claudio-v1]\n\n**Objetivo:** <preencher>\n**Gatilho:** Webhook POST /template-base\n**Saídas:** <preencher>\n**Dependências:** <credentials, env vars>\n\n**Autor:** Cláudio (skill n8n-architect)\n**Criado em:** YYYY-MM-DD\n**Baseado em:** novo (template)\n\n## Notas\n- Substituir o nó Webhook pelo trigger real (Schedule, manual, etc) se for o caso.\n- Validador de payload obrigatório.\n- Error Workflow configurado em Settings → Error Workflow.",
+        "height": 320,
+        "width": 460
+      },
+      "id": "sticky-header",
+      "name": "📋 Header",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, -200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "template-base",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-entrada",
+      "name": "Webhook Entrada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "REPLACE-ON-CREATE"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validar payload mínimo\nconst body = $input.item.json.body || $input.item.json;\n\nif (!body) {\n  throw new Error('Payload vazio');\n}\n\n// TODO: substituir validações abaixo pelas do payload real\nconst camposObrigatorios = ['exemplo'];\nfor (const campo of camposObrigatorios) {\n  if (body[campo] === undefined) {\n    throw new Error(`Campo obrigatório ausente: ${campo}`);\n  }\n}\n\nreturn { json: { ...body, validadoEm: $now.toISO() } };"
+      },
+      "id": "validar-payload",
+      "name": "Validar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "content": "## ⚙️ Lógica principal\n\nSubstituir este bloco pelos nós da regra de negócio.\nManter sticky notes em qualquer Code > 5 linhas.",
+        "height": 180,
+        "width": 280
+      },
+      "id": "sticky-logica",
+      "name": "📝 Lógica",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [640, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, processadoEm: $now.toISO() } }}",
+        "options": {}
+      },
+      "id": "responder",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [880, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Entrada": {
+      "main": [[{ "node": "Validar Payload", "type": "main", "index": 0 }]]
+    },
+    "Validar Payload": {
+      "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "errorWorkflow": ""
+  },
+  "tags": [
+    { "name": "claudio" },
+    { "name": "experimento" }
+  ]
+}

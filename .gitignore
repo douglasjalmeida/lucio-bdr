@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+.claude/skills/*/.env
+*.log
+.DS_Store
+dist/
+coverage/
+.vscode/
+
+# CSVs de leads — dado real de cliente, nunca versionar.
+docs/inbox/*.csv
+docs/inbox/leads-brutos/
+!docs/inbox/.gitkeep

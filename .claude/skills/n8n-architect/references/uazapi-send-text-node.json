@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "descricao": "Template padrão do Douglas pra envio de texto via uazapi. Sempre usar este conjunto de 3 nós (texto → define_delay_digitando → Envio de Texto) em qualquer fluxo novo de envio de WhatsApp pessoal. Antes do nó `texto`, deve existir um nó `normaliza` que entrega serverUrl, token e telefone.",
+    "fonte": "Padrão fornecido pelo Douglas — 2026-05-01",
+    "variaveis_env_pessoal": {
+      "serverUrl": "WHATS_PESSOAL_API_BASE_URL",
+      "token": "WHATS_PESSOAL_TOKEN"
+    },
+    "contrato_normaliza": {
+      "serverUrl": "string — base URL da uazapi (ex: https://agtav.uazapi.com)",
+      "token": "string — token da instância (header `token`)",
+      "telefone": "string — número em E.164 sem `+` (ex: 5511999998888)"
+    },
+    "ordem_dos_nos": ["normaliza (externo)", "texto", "define_delay_digitando", "Envio de Texto"],
+    "delay_formula": "min(max(palavras*1333, 1500), 30000) — simula tempo de digitação"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0cdaec64-704e-4b69-8e26-e718cee5ce75",
+              "name": "texto",
+              "value": "=Olá, aqui sou eu falando. Como vc está?",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [0, 0],
+      "id": "36a53012-befd-41fe-8a75-3260347d5153",
+      "name": "texto"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "199a50b8-a1c0-4463-a049-7311f91eae28",
+              "name": "delay",
+              "value": "={{ parseInt(Math.min(Math.max($json.texto.trim().split(/\\s+/).length * 1333, 1500), 30000)) }}\n",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [208, 0],
+      "id": "a6fb93fe-d49e-44fd-84b9-d518f3d0aa12",
+      "name": "define_delay_digitando"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('normaliza').item.json.serverUrl }}/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" },
+            { "name": "token", "value": "={{ $('normaliza').item.json.token }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "number", "value": "={{ $('normaliza').item.json.telefone }}" },
+            { "name": "text", "value": "={{ $item(\"0\").$node[\"texto\"].json[\"texto\"] }}" },
+            { "name": "delay", "value": "={{ $item(\"0\").$node[\"define_delay_digitando\"].json[\"delay\"] }}" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [416, 0],
+      "id": "1e8a102a-25ec-4a80-9cfc-e9d4700416cc",
+      "name": "Envio de Texto"
+    }
+  ],
+  "connections": {
+    "texto": { "main": [[{ "node": "define_delay_digitando", "type": "main", "index": 0 }]] },
+    "define_delay_digitando": { "main": [[{ "node": "Envio de Texto", "type": "main", "index": 0 }]] },
+    "Envio de Texto": { "main": [[]] }
+  }
+}

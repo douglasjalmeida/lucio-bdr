@@ -1,0 +1,26 @@
+{
+  "name": "lucio-bdr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lúcio — agente BDR comercial da Luminus em WhatsApp. Bridge Node + Claude Agent SDK + uazapi + Supabase + n8n + Chatwoot.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "smoke": "bash scripts/smoke-test.sh",
+    "importar-leads": "node scripts/importar-leads.js",
+    "simular": "node scripts/simular-conversa.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.126",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "groq-sdk": "^1.1.2"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,27 @@
+node_modules
+.env
+.env.local
+.env.example
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+*.log
+coverage
+dist
+
+# Tudo de Modo Dev (skills, MCPs locais) — bridge produção não usa.
+.claude/skills
+.claude/agents
+.claude/inbox
+.mcp.json
+
+# Docs e dados — não precisam no container.
+docs
+scripts
+prompts
+README.md
+CLAUDE.md
+Dockerfile
+.dockerignore
