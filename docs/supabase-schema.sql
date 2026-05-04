@@ -106,6 +106,16 @@ create trigger leads_atualizado_em
   before update on leads
   for each row execute function trg_leads_atualizado_em();
 
+-- ─── RLS ────────────────────────────────────────────────────────────────────
+-- Ligado sem policies: bridge usa service_role (bypassa RLS); anon bloqueado.
+-- Quando expor algo pra dashboard/auth, escrever policy específica.
+alter table cadencias              enable row level security;
+alter table passos_cadencia        enable row level security;
+alter table leads                  enable row level security;
+alter table mensagens              enable row level security;
+alter table eventos                enable row level security;
+alter table agendamentos_disparos  enable row level security;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Seed: cadência piloto MVP — Geradores B2B
 -- Decisão A3 (2026-05-04): 1 cadência, 2 toques (T+0 e T+9).
