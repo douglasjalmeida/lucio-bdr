@@ -1,10 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// Node 20 não tem WebSocket nativo; passar 'ws' explicitamente pro realtime-js
+// não crashar no boot (Easypanel pode estar em Node 20). Em Node 22+ é ignorado.
 export const supabase = url && serviceKey
-  ? createClient(url, serviceKey, { auth: { persistSession: false } })
+  ? createClient(url, serviceKey, {
+      auth: { persistSession: false },
+      realtime: { transport: WebSocket },
+    })
   : null;
 
 export const supabaseEnabled = () => supabase !== null;
