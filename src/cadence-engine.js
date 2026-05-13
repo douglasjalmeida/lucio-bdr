@@ -18,8 +18,13 @@ import path from 'node:path';
 import { supabase, gravarMensagem, registrarEvento, atualizarLead } from './supabase-client.js';
 
 const TZ = 'America/Sao_Paulo';
-const JANELA_INICIO_H = 9;
+// Janela 08:00–17:30 seg-sex (America/Sao_Paulo). Sem pausa de almoço.
+const JANELA_INICIO_H = 8;
+const JANELA_INICIO_M = 0;
 const JANELA_FIM_H = 17;
+const JANELA_FIM_M = 30;
+const JANELA_INICIO_MIN = JANELA_INICIO_H * 60 + JANELA_INICIO_M;
+const JANELA_FIM_MIN = JANELA_FIM_H * 60 + JANELA_FIM_M;
 
 const IDENTIDADE_PATH = path.resolve(process.cwd(), '.claude', 'identidade-lucio.md');
 const IDENTIDADE = (() => { try { return fs.readFileSync(IDENTIDADE_PATH, 'utf8'); } catch { return ''; } })();
@@ -53,16 +58,17 @@ export function proximoSlotUtil(date = new Date()) {
     const tmp = new Date(Date.UTC(y, m - 1, d) + 24 * 3600 * 1000);
     y = tmp.getUTCFullYear(); m = tmp.getUTCMonth() + 1; d = tmp.getUTCDate();
     wd = (wd + 1) % 7;
-    h = JANELA_INICIO_H; mi = 0;
+    h = JANELA_INICIO_H; mi = JANELA_INICIO_M;
   };
 
   // pular fim de semana
   while (wd === 0 || wd === 6) empurraDia();
 
+  const totalMin = h * 60 + mi;
   // antes da janela
-  if (h < JANELA_INICIO_H) { h = JANELA_INICIO_H; mi = 0; }
+  if (totalMin < JANELA_INICIO_MIN) { h = JANELA_INICIO_H; mi = JANELA_INICIO_M; }
   // depois da janela → próximo dia
-  if (h >= JANELA_FIM_H) { empurraDia(); while (wd === 0 || wd === 6) empurraDia(); }
+  else if (totalMin >= JANELA_FIM_MIN) { empurraDia(); while (wd === 0 || wd === 6) empurraDia(); }
 
   // monta ISO em SP e converte pra UTC
   const isoSP = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}:00`;

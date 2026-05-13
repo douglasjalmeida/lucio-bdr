@@ -6,8 +6,8 @@ Catálogo das cadências comerciais executadas pelo Lúcio. Fonte de verdade pra
 
 ## Regras gerais (valem pra todas)
 
-- **Janela de envio:** 09h–17h, segunda a sexta (America/Sao_Paulo). Fora disso, fila aguarda.
-- **Jitter mínimo:** 3min entre disparos do mesmo lote (uazapi `/sender/advanced` `delayMin`/`delayMax`).
+- **Janela de envio:** 08h–17h30, segunda a sexta (America/Sao_Paulo). Sem pausa de almoço. Fora disso, fila aguarda.
+- **Jitter:** 3–8min entre disparos do mesmo lote (uazapi `/sender/advanced` `delayMin=180s`, `delayMax=480s`).
 - **Reset de cadência:** se o lead responder a qualquer toque, a cadência **zera** (status muda pra `engajado`, próximos toques cancelados). Lead volta a receber outbound só se for explicitamente reagendado.
 - **Modo mudo:** se `leads.modo='mudo'` (handoff humano em curso), nenhum toque dispara — fica `pendente` até voltar pra `bot`.
 - **Encerramento:** após o último toque sem resposta, status vira `encerrado`, motivo `frio`.
@@ -17,13 +17,15 @@ Catálogo das cadências comerciais executadas pelo Lúcio. Fonte de verdade pra
 
 ## `geradores-b2b-v1` (produção)
 
-Cadência piloto MVP. 3 toques. Foco: gerador + MPaaS pra empresas com risco de queda de energia.
+Cadência piloto MVP. **1 toque só (T+0).** Foco: gerador + energia de backup pra empresas com risco de queda de energia. Toques 2 e 3 ficam **inativos** na tabela (não deletados — preservam histórico).
 
-| Passo | Quando | Objetivo |
-|---|---|---|
-| 1 | T+0 | Apresentação + descoberta |
-| 2 | T+3 dias após toque 1 | Reengajamento (ângulo MPaaS/recorrência) |
-| 3 | T+6 dias após toque 2 (T+9 total) | Última tentativa |
+| Passo | Quando | Estado | Objetivo |
+|---|---|---|---|
+| 1 | T+0 | **ativo** | Apresentação + descoberta (dinâmica por lead) |
+| 2 | T+3 dias | inativo | (Reengajamento MPaaS — desligado) |
+| 3 | T+9 total | inativo | (Última tentativa — desligado) |
+
+**Decisão (2026-05-13):** começamos com 1 toque só pra evitar parecer cadência automatizada. Se o lead responder, vai pra inbound normal; se não, fim. Reativar toques 2 e 3 só depois de validar conversão do toque 1 e ter copy variado o suficiente.
 
 > **Atenção:** o texto real do toque é gerado pelo SDK em runtime usando `passos_cadencia.prompt_orientacao` (fonte de verdade). Os exemplos abaixo são amostras representativas — não strings literais enviadas.
 
