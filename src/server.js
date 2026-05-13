@@ -431,6 +431,40 @@ app.post('/chatwoot-webhook', express.json({
 
     const ev = req.body || {};
     const eventName = ev.event;
+
+    // conversation_updated: Chatwoot dispara quando labels mudam.
+    // Se a label `devolver-lucio` está presente → devolve lead pro bot.
+    if (eventName === 'conversation_updated') {
+      const labels = ev.labels || ev.conversation?.labels || ev.messages?.[0]?.conversation?.labels || [];
+      if (!Array.isArray(labels) || !labels.includes('devolver-lucio')) return;
+      const telefone = ev.meta?.sender?.phone_number
+        || ev.contact_inbox?.contact?.phone_number
+        || ev.messages?.[0]?.conversation?.meta?.sender?.phone_number
+        || ev.conversation?.meta?.sender?.phone_number;
+      if (!telefone) {
+        console.warn('[bridge] conversation_updated com label devolver-lucio mas sem telefone identificável');
+        return;
+      }
+      try {
+        const lead = await buscarLeadPorTelefone(telefone);
+        if (!lead) { console.warn(`[bridge] devolver-lucio: lead não encontrado tel=${telefone}`); return; }
+        if (lead.modo === 'bot') {
+          console.log(`[bridge] devolver-lucio: lead ${lead.id} já está em bot — nada a fazer`);
+        } else {
+          await devolverPraBot(lead.id);
+          console.log(`[bridge] devolver-lucio: lead ${lead.id} voltou pra bot`);
+        }
+        // limpa label pra não re-disparar e tira humano-atendendo se ainda tiver
+        try {
+          const convId = ev.id || ev.conversation?.id;
+          if (convId) await removerLabels(convId, ['devolver-lucio', 'humano-atendendo']);
+        } catch (err) { console.error('[bridge] erro limpando labels após devolução:', err.message); }
+      } catch (err) {
+        console.error('[bridge] erro processando devolver-lucio:', err.message);
+      }
+      return;
+    }
+
     // Só queremos quando agente humano cria msg outgoing pública
     if (eventName !== 'message_created') return;
     if (ev.message_type !== 'outgoing') return;
