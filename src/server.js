@@ -23,6 +23,7 @@ import {
   addNotaPrivada,
 } from './chatwoot-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
+import { revisarHandoffsAbandonados } from './watchdog.js';
 import {
   puxarPendentes,
   formularToque,
@@ -396,6 +397,26 @@ if (TICK > 0) {
     }
   }, TICK * 1000);
   console.log(`[bridge] scheduler interno ligado (tick=${TICK}s)`);
+}
+
+// Watchdog de handoff abandonado: a cada WATCHDOG_TICK_SECONDS varre leads em mudo
+// cuja última msg do lead está parada há > WATCHDOG_HANDOFF_TIMEOUT_MIN minutos.
+const WATCHDOG_TICK = parseInt(process.env.WATCHDOG_TICK_SECONDS || '300', 10);
+if (WATCHDOG_TICK > 0) {
+  let rodando = false;
+  setInterval(async () => {
+    if (rodando) return;
+    rodando = true;
+    try {
+      const out = await revisarHandoffsAbandonados();
+      if (out?.processados > 0) console.log(`[bridge] watchdog: ${out.processados} lead(s) retomado(s)`);
+    } catch (err) {
+      console.error('[bridge] erro no watchdog:', err);
+    } finally {
+      rodando = false;
+    }
+  }, WATCHDOG_TICK * 1000);
+  console.log(`[bridge] watchdog handoff ligado (tick=${WATCHDOG_TICK}s, timeout=${process.env.WATCHDOG_HANDOFF_TIMEOUT_MIN || 60}min)`);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
