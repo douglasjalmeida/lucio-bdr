@@ -19,6 +19,7 @@ import {
   espelharMensagemConversa,
   aplicarLabelsAditivo,
   removerLabels,
+  foiEspelhadoPeloBridge,
 } from './chatwoot-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
 import {
@@ -434,6 +435,16 @@ app.post('/chatwoot-webhook', express.json({
     if (eventName !== 'message_created') return;
     if (ev.message_type !== 'outgoing') return;
     if (ev.private === true) return; // notas privadas ficam só no Chatwoot
+
+    // Anti-loop: se foi o próprio bridge que espelhou essa msg, Chatwoot dispara
+    // webhook outgoing pra ela também — se não filtrar, re-envia pelo uazapi e
+    // duplica a entrega pro lead. ID vem em ev.id (payload "message_created").
+    const msgId = ev.id || ev.message?.id;
+    if (foiEspelhadoPeloBridge(msgId)) {
+      console.log(`[bridge] chatwoot-webhook ignora msg id=${msgId} (espelho do próprio bridge)`);
+      return;
+    }
+
     // sender pode vir como ev.sender = { type: 'user', name: ... }; bot/automation = type 'agent_bot'
     const senderType = ev.sender?.type;
     if (senderType && !['user', 'User', 'AgentBot'].includes(senderType) && senderType !== 'agent') {

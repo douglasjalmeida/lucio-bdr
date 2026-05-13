@@ -122,15 +122,49 @@ export async function garantirConversa({ contactId, sourceId }) {
   return criarConversa({ contactId, sourceId });
 }
 
+// Cache de IDs de mensagens que ACABAMOS de espelhar — pro /chatwoot-webhook
+// ignorar e não cair em loop (Chatwoot dispara webhook outgoing pra toda msg
+// criada via API, inclusive a que o próprio bridge postou como espelho).
+// TTL ~120s e tamanho cap pra não vazar memória.
+const mirroredIds = new Map(); // id -> expiresAt
+const MIRRORED_TTL_MS = 120_000;
+const MIRRORED_MAX = 5000;
+
+function registrarIdEspelhado(id) {
+  if (!id) return;
+  const now = Date.now();
+  // limpa expirados a cada inserção (barato)
+  for (const [k, exp] of mirroredIds) if (exp <= now) mirroredIds.delete(k);
+  if (mirroredIds.size >= MIRRORED_MAX) {
+    const firstKey = mirroredIds.keys().next().value;
+    if (firstKey !== undefined) mirroredIds.delete(firstKey);
+  }
+  mirroredIds.set(String(id), now + MIRRORED_TTL_MS);
+}
+
+export function foiEspelhadoPeloBridge(id) {
+  if (!id) return false;
+  const exp = mirroredIds.get(String(id));
+  if (!exp) return false;
+  if (exp <= Date.now()) { mirroredIds.delete(String(id)); return false; }
+  return true;
+}
+
 // Espelha mensagem na conversa. direction: 'in' (lead) ou 'out' (Lúcio/humano).
 export async function espelharMensagemConversa({ conversationId, content, direction, isPrivate = false }) {
   if (!enabled || !conversationId) return null;
   const message_type = direction === 'in' ? 'incoming' : 'outgoing';
-  return call('POST', `/conversations/${conversationId}/messages`, {
+  const res = await call('POST', `/conversations/${conversationId}/messages`, {
     content,
     message_type,
     private: isPrivate,
   });
+  // só msgs outgoing públicas é que disparam o re-entry do webhook
+  if (direction !== 'in' && !isPrivate) {
+    const id = res?.id || res?.payload?.id;
+    registrarIdEspelhado(id);
+  }
+  return res;
 }
 
 export async function addNotaPrivada(conversationId, content) {

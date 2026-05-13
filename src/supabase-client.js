@@ -19,16 +19,28 @@ function ensure() {
   if (!supabase) throw new Error('Supabase não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no .env');
 }
 
+// Persistimos sempre em E.164 com `+` na frente. uazapi entrega sem `+`,
+// Chatwoot entrega com `+` — sem normalizar, mesmo número vira 2 leads.
+export function normalizaTelefone(telefone) {
+  if (!telefone) return telefone;
+  const t = String(telefone).trim();
+  if (t.startsWith('+')) return t;
+  const digits = t.replace(/\D/g, '');
+  return digits ? '+' + digits : t;
+}
+
 export async function buscarLeadPorTelefone(telefone) {
   ensure();
-  const { data, error } = await supabase.from('leads').select('*').eq('telefone', telefone).maybeSingle();
+  const norm = normalizaTelefone(telefone);
+  const { data, error } = await supabase.from('leads').select('*').eq('telefone', norm).maybeSingle();
   if (error) throw error;
   return data;
 }
 
 export async function criarLead({ nome, empresa, telefone, segmento, origem = 'inbound' }) {
   ensure();
-  const { data, error } = await supabase.from('leads').insert({ nome, empresa, telefone, segmento, origem }).select().single();
+  const norm = normalizaTelefone(telefone);
+  const { data, error } = await supabase.from('leads').insert({ nome, empresa, telefone: norm, segmento, origem }).select().single();
   if (error) throw error;
   return data;
 }
