@@ -25,17 +25,31 @@ Cadência piloto MVP. 3 toques. Foco: gerador + MPaaS pra empresas com risco de 
 | 2 | T+3 dias após toque 1 | Reengajamento (ângulo MPaaS/recorrência) |
 | 3 | T+6 dias após toque 2 (T+9 total) | Última tentativa |
 
+> **Atenção:** o texto real do toque é gerado pelo SDK em runtime usando `passos_cadencia.prompt_orientacao` (fonte de verdade). Os exemplos abaixo são amostras representativas — não strings literais enviadas.
+
 ### Toque 1 — apresentação (T+0)
 
-> Oi, {nome}, tudo bem? Aqui é o Lúcio, da Luminus. A gente cuida de gerador e energia de backup pra empresa que não pode parar quando a luz cai. Tô passando porque {empresa} entrou no nosso radar — queria entender rapidinho: hoje, se a energia caísse aí agora, quanto tempo vocês conseguem operar antes de virar prejuízo?
+> Bom dia, {nome}. Aqui é o Lúcio, da Luminus.
+>
+> A gente trabalha com gerador e energia de backup pra empresa que não pode parar quando a luz cai.
+>
+> Vi que a {empresa} opera com {segmento} — vocês já têm algum sistema de backup hoje?
 
 ### Toque 2 — reengajamento MPaaS (T+3 dias)
 
-> {nome}, voltei aqui. Sem cobrança — é que a maioria dos gestores que a gente conversa não quer comprar gerador, quer parar de se preocupar com queda de energia. A gente tem um modelo (MPaaS) onde a Luminus assume o equipamento + manutenção como serviço recorrente — você não imobiliza capital e a operação fica garantida. Faz sentido eu te mandar 2 linhas explicando como funciona pro seu cenário?
+> {nome}, voltei aqui. Sem cobrança.
+>
+> A maioria dos gestores que a gente conversa não quer comprar gerador — quer parar de se preocupar com queda de energia. A Luminus tem um modelo onde a gente assume o equipamento e a manutenção, e você paga mensal. Sem imobilizar capital. (A gente chama de MPaaS internamente.)
+>
+> Faz sentido eu te mandar como funciona pro cenário da {empresa}?
 
 ### Toque 3 — última tentativa (T+9)
 
-> {nome}, último toque meu por aqui pra não te encher. Se backup de energia não é prioridade agora, beleza, fecho aqui. Se for e só não foi a hora, me avisa quando quiser retomar — fica anotado. Pode ser uma palavra: "agora", "depois" ou "não".
+> {nome}, último toque meu por aqui pra não te encher.
+>
+> Se backup de energia não é prioridade agora, beleza. Se for e só não foi a hora, me avisa quando quiser retomar — fica anotado.
+>
+> Pode ser uma palavra: "agora", "depois" ou "não".
 
 ---
 
