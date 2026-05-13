@@ -52,8 +52,14 @@ export async function gerarRespostaInbound({ lead, historico, mensagemAtual }) {
 - Cadência: ${lead?.cadencia_id || '-'} (passo ${lead?.passo_atual ?? 0})
 `.trim();
 
+  const rotuloPor = (autor) => {
+    if (autor === 'lead') return 'Lead';
+    if (autor === 'humano') return 'Humano (Luminus)';
+    if (autor === 'nota_interna') return '[NOTA INTERNA closer — invisível pro lead]';
+    return 'Lúcio';
+  };
   const historicoTexto = (historico || [])
-    .map(m => `[${m.enviada_em}] ${m.autor === 'lead' ? 'Lead' : (m.autor === 'humano' ? 'Humano (Luminus)' : 'Lúcio')}: ${m.texto}`)
+    .map(m => `[${m.enviada_em}] ${rotuloPor(m.autor)}: ${m.texto}`)
     .join('\n') || '(sem histórico)';
 
   const userPrompt = `${contextoLead}

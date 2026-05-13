@@ -465,17 +465,40 @@ app.post('/chatwoot-webhook', express.json({
       return;
     }
 
-    // Só queremos quando agente humano cria msg outgoing pública
     if (eventName !== 'message_created') return;
     if (ev.message_type !== 'outgoing') return;
-    if (ev.private === true) return; // notas privadas ficam só no Chatwoot
 
-    // Anti-loop: se foi o próprio bridge que espelhou essa msg, Chatwoot dispara
-    // webhook outgoing pra ela também — se não filtrar, re-envia pelo uazapi e
-    // duplica a entrega pro lead. ID vem em ev.id (payload "message_created").
+    // Anti-loop: se foi o próprio bridge que espelhou essa msg (público ou
+    // nota privada de handoff), Chatwoot redispara o webhook — ignora.
     const msgId = ev.id || ev.message?.id;
     if (foiEspelhadoPeloBridge(msgId)) {
       console.log(`[bridge] chatwoot-webhook ignora msg id=${msgId} (espelho do próprio bridge)`);
+      return;
+    }
+
+    // Nota privada do closer humano: grava no Supabase como autor='nota_interna'.
+    // Lúcio vai ler quando voltar a responder (após devolver-lucio).
+    // NÃO envia via uazapi, não muda modo do lead.
+    if (ev.private === true) {
+      const telefoneNota = ev.conversation?.meta?.sender?.phone_number
+        || ev.contact?.phone_number
+        || ev.conversation?.contact_inbox?.source_id;
+      const textoNota = ev.content || '';
+      if (!telefoneNota || !textoNota) return;
+      if (supabaseEnabled()) {
+        try {
+          const lead = await buscarLeadPorTelefone(telefoneNota);
+          if (lead) {
+            await gravarMensagem({
+              lead_id: lead.id, chatid: null, direcao: 'nota',
+              autor: 'nota_interna', texto: textoNota, modo_no_momento: lead.modo,
+            });
+            console.log(`[bridge] nota interna gravada lead=${lead.id} (${textoNota.length} chars)`);
+          }
+        } catch (err) {
+          console.error('[bridge] erro gravando nota interna:', err.message);
+        }
+      }
       return;
     }
 

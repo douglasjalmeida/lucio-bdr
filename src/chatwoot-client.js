@@ -159,8 +159,10 @@ export async function espelharMensagemConversa({ conversationId, content, direct
     message_type,
     private: isPrivate,
   });
-  // só msgs outgoing públicas é que disparam o re-entry do webhook
-  if (direction !== 'in' && !isPrivate) {
+  // Registra ID de tudo que o bridge POSTou (público OU privado). Notas
+  // privadas também disparam webhook message_created — sem registrar, o
+  // próprio bridge re-processaria a nota que ele acabou de postar.
+  if (direction !== 'in') {
     const id = res?.id || res?.payload?.id;
     registrarIdEspelhado(id);
   }
