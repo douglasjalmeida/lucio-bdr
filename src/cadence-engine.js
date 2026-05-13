@@ -176,6 +176,41 @@ Regras:
 `;
 
 /**
+ * Carrega obras vinculadas ao lead (via lead_obras) — pra contexto outbound.
+ * Devolve até 3 obras priorizando estágios ativos (canteiro precisa de energia).
+ */
+async function carregarObrasDoLead(lead_id) {
+  if (!lead_id) return [];
+  const { data, error } = await supabase
+    .from('lead_obras')
+    .select('posicao, contato_nome, contato_cargo, obras:obra_id (codigo_externo, nome, estagio_atual, fase, cidade, estado, bairro, valor_investimento, n_unidades, n_pavimentos, detalhes, inicio_obra, termino_obra)')
+    .eq('lead_id', lead_id)
+    .order('posicao', { ascending: true })
+    .limit(10);
+  if (error) { console.warn('[cadence] erro carregando obras:', error.message); return []; }
+
+  const PRIO = ['FUNDAÇÕES', 'ESTRUTURA', 'ALVENARIA', 'EM CONSTRUÇÃO', 'SERVIÇOS PRELIMINARES', 'TERRAPLENAGEM', 'ACABAMENTO', 'LANÇAMENTO', 'PROJETO'];
+  const score = (e) => { const i = PRIO.indexOf(String(e || '').toUpperCase()); return i < 0 ? 99 : i; };
+  return (data || []).slice().sort((a, b) => score(a.obras?.estagio_atual) - score(b.obras?.estagio_atual)).slice(0, 3);
+}
+
+function formataObrasParaPrompt(leadObras) {
+  if (!leadObras.length) return '(sem obras vinculadas)';
+  return leadObras.map((lo, i) => {
+    const o = lo.obras || {};
+    const linhas = [];
+    linhas.push(`Obra ${i + 1}: ${o.nome || o.codigo_externo || '(sem nome)'}`);
+    if (o.cidade || o.estado) linhas.push(`  Local: ${[o.bairro, o.cidade, o.estado].filter(Boolean).join(' / ')}`);
+    if (o.estagio_atual) linhas.push(`  Estágio: ${o.estagio_atual}${o.fase ? ' (' + o.fase + ')' : ''}`);
+    if (o.n_unidades || o.n_pavimentos) linhas.push(`  Porte: ${o.n_unidades || '-'} unidades, ${o.n_pavimentos || '-'} pavimentos`);
+    if (o.valor_investimento) linhas.push(`  Valor investimento: R$ ${Number(o.valor_investimento).toLocaleString('pt-BR')}`);
+    if (o.detalhes) linhas.push(`  Detalhes: ${String(o.detalhes).slice(0, 240)}`);
+    if (lo.contato_nome && lo.contato_nome !== (o.responsavel || null)) linhas.push(`  Contato registrado: ${lo.contato_nome}${lo.contato_cargo ? ' — ' + lo.contato_cargo : ''}`);
+    return linhas.join('\n');
+  }).join('\n\n');
+}
+
+/**
  * Gera o texto do toque pra um agendamento. Não envia — só formula.
  */
 export async function formularToque({ lead, passo, promptOrientacao, historico = [] }) {
@@ -185,10 +220,19 @@ export async function formularToque({ lead, passo, promptOrientacao, historico =
     ? historico.map(m => `[${m.enviada_em}] ${m.autor === 'lead' ? 'Lead' : 'Lúcio'}: ${m.texto}`).join('\n')
     : '(sem histórico — primeiro contato)';
 
+  const obras = await carregarObrasDoLead(lead?.id);
+
   const userPrompt = `## Lead
 - Nome: ${lead.nome || 'desconhecido'}
-- Empresa: ${lead.empresa || '-'}
-- Segmento: ${lead.segmento || '-'}
+- Cargo: ${lead.cargo || '-'}
+- Empresa: ${lead.empresa || lead.razao_social || '-'}
+- CNPJ: ${lead.cnpj || '-'}
+- Tipo de empresa: ${lead.tipo_empresa || 'indefinido'}  (construtora|incorporadora|ambos|indefinido)
+- Segmento da empresa: ${lead.segmento || '-'}
+- Telefone (compartilhado pela empresa, pode atender qualquer um da equipe): ${lead.telefone}
+
+## Obras vinculadas ao lead (priorizadas por estágio ativo)
+${formataObrasParaPrompt(obras)}
 
 ## Histórico
 ${histTxt}
