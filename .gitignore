@@ -8,7 +8,13 @@ dist/
 coverage/
 .vscode/
 
-# CSVs de leads — dado real de cliente, nunca versionar.
+# Dados reais de cliente (leads/contatos) — nunca versionar.
 docs/inbox/*.csv
+docs/inbox/*.xlsx
+docs/inbox/*.xls
 docs/inbox/leads-brutos/
 !docs/inbox/.gitkeep
+
+# Screenshots descartados na raiz
+CleanShot*.webp
+CleanShot*.png
