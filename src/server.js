@@ -20,6 +20,7 @@ import {
   aplicarLabelsAditivo,
   removerLabels,
   foiEspelhadoPeloBridge,
+  addNotaPrivada,
 } from './chatwoot-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
 import {
@@ -445,22 +446,29 @@ app.post('/chatwoot-webhook', express.json({
         console.warn('[bridge] conversation_updated com label devolver-lucio mas sem telefone identificável');
         return;
       }
+      const convId = ev.id || ev.conversation?.id;
       try {
         const lead = await buscarLeadPorTelefone(telefone);
         if (!lead) { console.warn(`[bridge] devolver-lucio: lead não encontrado tel=${telefone}`); return; }
+        let nota;
         if (lead.modo === 'bot') {
           console.log(`[bridge] devolver-lucio: lead ${lead.id} já está em bot — nada a fazer`);
+          nota = `ℹ️ Lead já estava com o Lúcio. Label removida.`;
         } else {
           await devolverPraBot(lead.id);
           console.log(`[bridge] devolver-lucio: lead ${lead.id} voltou pra bot`);
+          const hora = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+          nota = `✅ Lúcio retomou o atendimento às ${hora}.`;
         }
-        // limpa label pra não re-disparar e tira humano-atendendo se ainda tiver
         try {
-          const convId = ev.id || ev.conversation?.id;
-          if (convId) await removerLabels(convId, ['devolver-lucio', 'humano-atendendo']);
-        } catch (err) { console.error('[bridge] erro limpando labels após devolução:', err.message); }
+          if (convId) {
+            await removerLabels(convId, ['devolver-lucio', 'humano-atendendo']);
+            await addNotaPrivada(convId, nota);
+          }
+        } catch (err) { console.error('[bridge] erro escrevendo feedback de devolução:', err.message); }
       } catch (err) {
         console.error('[bridge] erro processando devolver-lucio:', err.message);
+        try { if (convId) await addNotaPrivada(convId, `⚠️ Falha ao devolver pro Lúcio: ${err.message}`); } catch {}
       }
       return;
     }
