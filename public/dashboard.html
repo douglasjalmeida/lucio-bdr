@@ -126,16 +126,14 @@
 </main>
 
 <script>
-const params = new URLSearchParams(location.search);
-const TOKEN = params.get('token') || '';
 let periodoAtual = '7d';
 let cadenciaAtual = '';
 let countdown = 10;
 
-function api(path) {
-  const sep = path.includes('?') ? '&' : '?';
-  return path + (TOKEN ? sep + 'token=' + encodeURIComponent(TOKEN) : '');
-}
+// Auth via Basic — o browser anexa Authorization automaticamente em todas as
+// requests fetch após a 1ª janela de credenciais, com credentials:'include'.
+function api(path) { return path; }
+const fetchOpts = { credentials: 'include' };
 
 function formatarMs(ms) {
   if (ms == null || isNaN(ms)) return '-';
@@ -166,7 +164,7 @@ const ETAPAS_ORDEM = [
 
 async function carregarCadencias() {
   try {
-    const r = await fetch(api('/api/cadencias'));
+    const r = await fetch(api('/api/cadencias'), fetchOpts);
     const j = await r.json();
     if (j.ok) {
       const sel = document.getElementById('cadencia-sel');
@@ -183,7 +181,7 @@ async function carregarCadencias() {
 async function carregar() {
   try {
     const qs = `?periodo=${periodoAtual}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
-    const r = await fetch(api('/api/metrics' + qs));
+    const r = await fetch(api('/api/metrics' + qs), fetchOpts);
     const j = await r.json();
     if (!j.ok) {
       document.getElementById('kpis').innerHTML = `<div class="erro">${escapeHtml(j.erro || 'erro')}</div>`;

@@ -48,24 +48,46 @@ const N8N_OUT_WEBHOOK_URL = process.env.N8N_OUT_WEBHOOK_URL;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Dashboard (F6) — endpoint JSON + página estática.
-// Auth simples: ?token=XXX deve casar com DASHBOARD_TOKEN do .env.
+// Auth: HTTP Basic. Browser pede usuário/senha nativo no primeiro acesso e
+// cacheia até fechar a aba. Credenciais em DASHBOARD_USER/DASHBOARD_PASSWORD.
 // ──────────────────────────────────────────────────────────────────────────
-const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || '';
+const DASHBOARD_USER = process.env.DASHBOARD_USER || '';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function dashboardAutorizado(req) {
-  if (!DASHBOARD_TOKEN) return true; // sem token configurado = aberto (dev)
-  const t = req.query.token || req.headers['x-dashboard-token'];
-  return t === DASHBOARD_TOKEN;
+function checarBasicAuth(req) {
+  if (!DASHBOARD_USER || !DASHBOARD_PASSWORD) return { ok: false, reason: 'auth-nao-configurada' };
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return { ok: false, reason: 'sem-header' };
+  let decoded;
+  try { decoded = Buffer.from(header.slice(6), 'base64').toString('utf8'); }
+  catch { return { ok: false, reason: 'base64-invalido' }; }
+  const i = decoded.indexOf(':');
+  if (i < 0) return { ok: false, reason: 'formato-invalido' };
+  const user = decoded.slice(0, i);
+  const pass = decoded.slice(i + 1);
+  // timingSafeEqual exige buffers do mesmo tamanho — comparamos os hashes.
+  const expectedU = crypto.createHash('sha256').update(DASHBOARD_USER).digest();
+  const expectedP = crypto.createHash('sha256').update(DASHBOARD_PASSWORD).digest();
+  const gotU = crypto.createHash('sha256').update(user).digest();
+  const gotP = crypto.createHash('sha256').update(pass).digest();
+  if (!crypto.timingSafeEqual(expectedU, gotU)) return { ok: false, reason: 'user-invalido' };
+  if (!crypto.timingSafeEqual(expectedP, gotP)) return { ok: false, reason: 'pass-invalida' };
+  return { ok: true };
 }
 
-app.get('/dashboard', (req, res) => {
-  if (!dashboardAutorizado(req)) return res.status(401).send('unauthorized');
+function exigirAuth(req, res, next) {
+  const r = checarBasicAuth(req);
+  if (r.ok) return next();
+  res.set('WWW-Authenticate', 'Basic realm="Lucio Dashboard", charset="UTF-8"');
+  return res.status(401).send('Autenticação requerida.');
+}
+
+app.get('/dashboard', exigirAuth, (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });
 
-app.get('/api/metrics', async (req, res) => {
-  if (!dashboardAutorizado(req)) return res.status(401).json({ ok: false, erro: 'unauthorized' });
+app.get('/api/metrics', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
   const periodo = req.query.periodo || '7d';
   const cadenciaId = req.query.cadencia ? parseInt(req.query.cadencia, 10) : null;
@@ -78,8 +100,7 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-app.get('/api/cadencias', async (req, res) => {
-  if (!dashboardAutorizado(req)) return res.status(401).json({ ok: false, erro: 'unauthorized' });
+app.get('/api/cadencias', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
   try {
     const lista = await listarCadenciasParaSeletor();
