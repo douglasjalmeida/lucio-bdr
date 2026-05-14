@@ -225,6 +225,32 @@ export async function aplicarLabelsAditivo(conversationId, novasLabels) {
   return call('POST', `/conversations/${conversationId}/labels`, { labels: Array.from(set) });
 }
 
+// Labels que indicam progresso além da triagem MQL inicial. Se qualquer
+// uma estiver presente, NÃO devemos re-aplicar mql-respondeu quando o
+// lead manda nova mensagem — ele já avançou no pipeline.
+const LABELS_ALEM_DE_TRIAGEM = [
+  'mql-qualificado',
+  'mql-descartado',
+  'humano-atendendo',
+  'sql-contato-feito',
+  'sql-proposta',
+  'sql-negociacao',
+  'sql-ganho',
+  'sql-perdido',
+];
+
+export async function marcarRespondeuSeTriagem(conversationId) {
+  if (!enabled || !conversationId) return null;
+  const cur = await call('GET', `/conversations/${conversationId}/labels`);
+  const atuais = cur?.payload || [];
+  if (atuais.some(l => LABELS_ALEM_DE_TRIAGEM.includes(l))) {
+    return { skipped: true, reason: 'conversa-alem-da-triagem', atuais };
+  }
+  if (atuais.includes('mql-respondeu')) return { skipped: true, reason: 'ja-aplicada' };
+  const set = new Set([...atuais, 'mql-respondeu']);
+  return call('POST', `/conversations/${conversationId}/labels`, { labels: Array.from(set) });
+}
+
 // Remove labels específicas mantendo as outras.
 export async function removerLabels(conversationId, labelsRemover) {
   if (!enabled || !conversationId) return null;

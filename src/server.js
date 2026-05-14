@@ -18,6 +18,7 @@ import {
   garantirLeadNoChatwoot,
   espelharMensagemConversa,
   aplicarLabelsAditivo,
+  marcarRespondeuSeTriagem,
   removerLabels,
   foiEspelhadoPeloBridge,
   addNotaPrivada,
@@ -194,7 +195,8 @@ async function processarBatch(items) {
         for (const it of items) {
           await espelharMensagemConversa({ conversationId: cwCtx.conversationId, content: it.mensagem, direction: 'in' });
         }
-        await aplicarLabelsAditivo(cwCtx.conversationId, ['mql-respondeu']);
+        const r = await marcarRespondeuSeTriagem(cwCtx.conversationId);
+        if (r?.skipped) console.log(`[bridge] mql-respondeu não aplicada convId=${cwCtx.conversationId} motivo=${r.reason}`);
       }
     } catch (err) {
       console.error('[bridge] erro espelhando inbound no Chatwoot:', err.message);
@@ -488,7 +490,8 @@ app.post('/chatwoot-webhook', express.json({
         }
         try {
           if (convId) {
-            await removerLabels(convId, ['devolver-lucio', 'humano-atendendo']);
+            await removerLabels(convId, ['devolver-lucio', 'humano-atendendo', 'mql-qualificado']);
+            await aplicarLabelsAditivo(convId, ['mql-em-cadencia']);
             await addNotaPrivada(convId, nota);
           }
         } catch (err) { console.error('[bridge] erro escrevendo feedback de devolução:', err.message); }
