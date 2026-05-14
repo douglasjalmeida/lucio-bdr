@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lúcio — Dashboard de Pipeline</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131720;
+    --panel-2: #1a1f2b;
+    --border: #232938;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #4fd1c5;
+    --warn: #f6ad55;
+    --ok: #68d391;
+    --bad: #fc8181;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.4;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
+  header .meta { font-size: 12px; color: var(--muted); }
+  .filtros { padding: 16px 24px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--border); }
+  .filtros label { font-size: 12px; color: var(--muted); margin-right: 6px; }
+  .filtros select, .filtros .btn-grupo button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  .filtros .btn-grupo { display: inline-flex; gap: 4px; }
+  .filtros .btn-grupo button.active { background: var(--accent); color: #0b0e14; border-color: var(--accent); font-weight: 600; }
+  main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .valor { font-size: 28px; font-weight: 700; margin-top: 6px; }
+  .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .secao { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 20px; }
+  .secao h2 { margin: 0 0 14px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+  .funil { display: grid; gap: 8px; }
+  .funil-row { display: grid; grid-template-columns: 180px 1fr 60px 90px; gap: 12px; align-items: center; font-size: 13px; }
+  .funil-row .etapa { color: var(--muted); }
+  .funil-row .barra { background: var(--panel-2); height: 22px; border-radius: 4px; overflow: hidden; position: relative; }
+  .funil-row .barra > div { background: linear-gradient(90deg, var(--accent), #4f9fd1); height: 100%; transition: width 0.6s ease; }
+  .funil-row .qtd { font-weight: 600; text-align: right; }
+  .funil-row .tempo { color: var(--muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  tr:hover td { background: var(--panel-2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+  .badge.em-cadencia { color: var(--muted); }
+  .badge.mql-respondeu, .badge.mql-qualificado { background: rgba(79, 209, 197, 0.15); color: var(--accent); border-color: var(--accent); }
+  .badge.humano-atendendo, .badge.sql-contato-feito, .badge.sql-proposta, .badge.sql-negociacao { background: rgba(246, 173, 85, 0.15); color: var(--warn); border-color: var(--warn); }
+  .badge.sql-ganho { background: rgba(104, 211, 145, 0.2); color: var(--ok); border-color: var(--ok); }
+  .badge.sql-perdido, .badge.encerrado { background: rgba(252, 129, 129, 0.15); color: var(--bad); border-color: var(--bad); }
+  details summary { cursor: pointer; user-select: none; color: var(--accent); }
+  details summary::-webkit-details-marker { display: none; }
+  .timeline { margin-top: 8px; padding: 10px 14px; background: var(--panel-2); border-radius: 6px; }
+  .timeline ol { margin: 0; padding-left: 18px; font-size: 11px; color: var(--muted); }
+  .timeline ol li { padding: 2px 0; }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; animation: pulse 1.5s ease-in-out infinite; vertical-align: middle; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .erro { color: var(--bad); padding: 12px; }
+  .vazio { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ Lúcio — Pipeline em tempo real</h1>
+  <div class="meta">
+    <span class="pulse"></span>
+    <span id="last-update">--</span>
+    <span> · próxima em <span id="countdown">10</span>s</span>
+  </div>
+</header>
+
+<div class="filtros">
+  <div>
+    <label>Cadência:</label>
+    <select id="cadencia-sel"><option value="">Todas</option></select>
+  </div>
+  <div>
+    <label>Período:</label>
+    <div class="btn-grupo" id="periodo-grupo">
+      <button data-p="hoje">Hoje</button>
+      <button data-p="7d" class="active">7d</button>
+      <button data-p="30d">30d</button>
+      <button data-p="3m">3m</button>
+      <button data-p="6m">6m</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div id="kpis" class="kpis"></div>
+
+  <div class="secao">
+    <h2>Distribuição por etapa atual</h2>
+    <div id="funil" class="funil"></div>
+  </div>
+
+  <div class="secao">
+    <h2>Leads — etapa atual e tempo</h2>
+    <div style="overflow-x: auto;">
+      <table id="tabela-leads">
+        <thead>
+          <tr>
+            <th>Lead</th><th>Empresa</th><th>Telefone</th><th>Etapa atual</th>
+            <th>Há quanto tempo</th><th>Origem</th><th>Timeline</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="vazio" class="vazio" style="display:none;">Sem leads nesta janela.</div>
+  </div>
+</main>
+
+<script>
+const params = new URLSearchParams(location.search);
+const TOKEN = params.get('token') || '';
+let periodoAtual = '7d';
+let cadenciaAtual = '';
+let countdown = 10;
+
+function api(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return path + (TOKEN ? sep + 'token=' + encodeURIComponent(TOKEN) : '');
+}
+
+function formatarMs(ms) {
+  if (ms == null || isNaN(ms)) return '-';
+  const seg = Math.floor(ms / 1000);
+  if (seg < 60) return seg + 's';
+  const min = Math.floor(seg / 60);
+  if (min < 60) return min + 'min';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h + 'h ' + (min % 60) + 'min';
+  const d = Math.floor(h / 24);
+  return d + 'd ' + (h % 24) + 'h';
+}
+
+function formatarData(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+const ETAPAS_ORDEM = [
+  'em-cadencia', 'mql-respondeu', 'mql-qualificado', 'humano-atendendo',
+  'sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho', 'sql-perdido', 'encerrado',
+];
+
+async function carregarCadencias() {
+  try {
+    const r = await fetch(api('/api/cadencias'));
+    const j = await r.json();
+    if (j.ok) {
+      const sel = document.getElementById('cadencia-sel');
+      for (const c of j.cadencias) {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.nome || c.slug || ('#' + c.id);
+        sel.appendChild(opt);
+      }
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function carregar() {
+  try {
+    const qs = `?periodo=${periodoAtual}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
+    const r = await fetch(api('/api/metrics' + qs));
+    const j = await r.json();
+    if (!j.ok) {
+      document.getElementById('kpis').innerHTML = `<div class="erro">${escapeHtml(j.erro || 'erro')}</div>`;
+      return;
+    }
+    renderizar(j);
+    document.getElementById('last-update').textContent = 'Atualizado ' + new Date(j.geradoEm).toLocaleTimeString('pt-BR');
+  } catch (e) {
+    console.error(e);
+    document.getElementById('kpis').innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderizar(m) {
+  // KPIs
+  const kpis = [
+    { label: 'Contatos na janela', valor: m.kpis.total_contatos },
+    { label: 'Qualificados (MQL+)', valor: m.kpis.total_qualificados, sub: m.kpis.taxa_qualificacao_pct + '% do total' },
+    { label: 'Ganhos', valor: m.kpis.total_ganhos, sub: m.kpis.taxa_conversao_pct + '% conversão' },
+    { label: 'Perdidos', valor: m.kpis.total_perdidos },
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi"><div class="label">${k.label}</div><div class="valor">${k.valor}</div>${k.sub ? `<div class="sub">${k.sub}</div>` : ''}</div>`
+  ).join('');
+
+  // Funil
+  const totalMax = Math.max(...Object.values(m.distribuicao_etapa_atual), 1);
+  const funilHtml = ETAPAS_ORDEM.map(et => {
+    const qtd = m.distribuicao_etapa_atual[et] || 0;
+    const pct = (qtd / totalMax) * 100;
+    const tm = m.tempo_medio_por_etapa[et];
+    const tempoStr = tm ? `~${formatarMs(tm.media_ms)} (n=${tm.n})` : '-';
+    return `<div class="funil-row">
+      <span class="etapa"><span class="badge ${et}">${et}</span></span>
+      <div class="barra"><div style="width:${pct}%"></div></div>
+      <span class="qtd">${qtd}</span>
+      <span class="tempo">${tempoStr}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('funil').innerHTML = funilHtml;
+
+  // Tabela de leads — ordenada por tempo no estágio atual desc
+  const leads = [...m.leads].sort((a, b) => b.tempo_no_estagio_atual_ms - a.tempo_no_estagio_atual_ms);
+  const tbody = document.querySelector('#tabela-leads tbody');
+  document.getElementById('vazio').style.display = leads.length ? 'none' : 'block';
+  tbody.innerHTML = leads.map(l => {
+    const ultimaOrigem = l.transicoes[l.transicoes.length - 1]?.origem || '-';
+    const timeline = l.transicoes.map(t =>
+      `<li>${formatarData(t.em)} — ${escapeHtml(t.de || '∅')} → <strong>${escapeHtml(t.para)}</strong> <em>(${escapeHtml(t.origem)})</em></li>`
+    ).join('');
+    return `<tr>
+      <td>${escapeHtml(l.nome)}</td>
+      <td>${escapeHtml(l.empresa)}</td>
+      <td>${escapeHtml(l.telefone)}</td>
+      <td><span class="badge ${l.etapa_atual}">${l.etapa_atual}</span></td>
+      <td>${formatarMs(l.tempo_no_estagio_atual_ms)}</td>
+      <td>${escapeHtml(ultimaOrigem)}</td>
+      <td><details><summary>${l.transicoes.length} transições</summary><div class="timeline"><ol>${timeline}</ol></div></details></td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('periodo-grupo').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#periodo-grupo button').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  periodoAtual = e.target.dataset.p;
+  carregar();
+});
+
+document.getElementById('cadencia-sel').addEventListener('change', e => {
+  cadenciaAtual = e.target.value;
+  carregar();
+});
+
+// Polling 10s + countdown visual
+setInterval(() => {
+  countdown--;
+  if (countdown <= 0) {
+    countdown = 10;
+    carregar();
+  }
+  document.getElementById('countdown').textContent = countdown;
+}, 1000);
+
+(async () => {
+  await carregarCadencias();
+  await carregar();
+})();
+</script>
+</body>
+</html>

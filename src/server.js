@@ -36,12 +36,58 @@ import {
 } from './cadence-engine.js';
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
+import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 const PORT = parseInt(process.env.PORT || '8788', 10);
 const N8N_OUT_WEBHOOK_URL = process.env.N8N_OUT_WEBHOOK_URL;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Dashboard (F6) — endpoint JSON + página estática.
+// Auth simples: ?token=XXX deve casar com DASHBOARD_TOKEN do .env.
+// ──────────────────────────────────────────────────────────────────────────
+const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || '';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function dashboardAutorizado(req) {
+  if (!DASHBOARD_TOKEN) return true; // sem token configurado = aberto (dev)
+  const t = req.query.token || req.headers['x-dashboard-token'];
+  return t === DASHBOARD_TOKEN;
+}
+
+app.get('/dashboard', (req, res) => {
+  if (!dashboardAutorizado(req)) return res.status(401).send('unauthorized');
+  res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
+});
+
+app.get('/api/metrics', async (req, res) => {
+  if (!dashboardAutorizado(req)) return res.status(401).json({ ok: false, erro: 'unauthorized' });
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  const periodo = req.query.periodo || '7d';
+  const cadenciaId = req.query.cadencia ? parseInt(req.query.cadencia, 10) : null;
+  try {
+    const m = await montarMetricas({ periodo, cadenciaId });
+    res.json({ ok: true, ...m });
+  } catch (err) {
+    console.error('[bridge] erro /api/metrics:', err);
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+app.get('/api/cadencias', async (req, res) => {
+  if (!dashboardAutorizado(req)) return res.status(401).json({ ok: false, erro: 'unauthorized' });
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const lista = await listarCadenciasParaSeletor();
+    res.json({ ok: true, cadencias: lista });
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -200,7 +246,14 @@ async function processarBatch(items) {
           await espelharMensagemConversa({ conversationId: cwCtx.conversationId, content: it.mensagem, direction: 'in' });
         }
         const r = await marcarRespondeuSeTriagem(cwCtx.conversationId);
-        if (r?.skipped) console.log(`[bridge] mql-respondeu não aplicada convId=${cwCtx.conversationId} motivo=${r.reason}`);
+        if (r?.skipped) {
+          console.log(`[bridge] mql-respondeu não aplicada convId=${cwCtx.conversationId} motivo=${r.reason}`);
+        } else if (lead?.id) {
+          // Aplicou a label de fato — registra transição pro dashboard
+          const { registrarTransicao } = await import('./supabase-client.js');
+          registrarTransicao(lead.id, 'em-cadencia', 'mql-respondeu', 'auto').catch(err =>
+            console.error('[bridge] erro registrando transição mql-respondeu:', err.message));
+        }
       }
     } catch (err) {
       console.error('[bridge] erro espelhando inbound no Chatwoot:', err.message);
@@ -507,14 +560,12 @@ app.post('/chatwoot-webhook', express.json({
         return;
       }
 
-      // Caso B: normalização de labels SQL. Closer aplicou manualmente uma
-      // sql-* (ex: mandou proposta por email e marcou sql-proposta na mão) →
-      // limpamos labels SQL anteriores pra manter só a mais avançada. Também
-      // cobre o caso do classificador automático, que já remove antes de
-      // aplicar — aqui é idempotente.
+      // Caso B: aplicação manual de label SQL pelo closer. Dois sub-casos:
+      // (1) 2+ sql-* presentes → normaliza (mantém só a mais avançada).
+      // (2) 1 sql-* presente → só registra transição (helper é idempotente).
       const sqlLabels = ['sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho', 'sql-perdido'];
       const sqlPresentes = Array.isArray(labels) ? labels.filter(l => sqlLabels.includes(l)) : [];
-      if (sqlPresentes.length >= 2 && convId) {
+      if (sqlPresentes.length >= 1 && convId) {
         let leadId = null;
         if (telefone) {
           try {
@@ -522,8 +573,16 @@ app.post('/chatwoot-webhook', express.json({
             leadId = lead?.id || null;
           } catch { /* tolerante */ }
         }
-        normalizarLabelsSqlSeNecessario({ conversationId: convId, leadId })
-          .catch(err => console.error('[bridge] erro normalizando SQL labels:', err.message));
+        if (sqlPresentes.length >= 2) {
+          normalizarLabelsSqlSeNecessario({ conversationId: convId, leadId })
+            .catch(err => console.error('[bridge] erro normalizando SQL labels:', err.message));
+        } else if (leadId) {
+          // Registra a transição com a única label SQL presente. Helper dedupica
+          // automaticamente se já foi registrada (anti-loop via última etapa).
+          const { registrarTransicao } = await import('./supabase-client.js');
+          registrarTransicao(leadId, null, sqlPresentes[0], 'manual')
+            .catch(err => console.error('[bridge] erro registrando transição SQL manual:', err.message));
+        }
       }
       return;
     }

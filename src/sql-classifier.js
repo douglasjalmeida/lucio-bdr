@@ -13,7 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   chatwootEnabled, aplicarLabelsAditivo, removerLabels, addNotaPrivada,
 } from './chatwoot-client.js';
-import { ultimasMensagensDoLead, registrarEvento } from './supabase-client.js';
+import { ultimasMensagensDoLead, registrarEvento, registrarTransicao } from './supabase-client.js';
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODEL = process.env.LUCIO_SQL_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001';
@@ -209,7 +209,7 @@ export async function normalizarLabelsSqlSeNecessario({ conversationId, leadId =
     return { skipped: true, reason: 'erro-remove', erro: err.message };
   }
 
-  // Registra evento pra rastreabilidade (manual ou automático, tanto faz).
+  // Registra evento + transição pra rastreabilidade (manual ou automático).
   if (leadId) {
     try {
       await registrarEvento(leadId, 'sql_pipeline_normalizado', {
@@ -217,8 +217,11 @@ export async function normalizarLabelsSqlSeNecessario({ conversationId, leadId =
         removidas: aRemover,
         origem: 'manual-ou-auto',
       });
+      // A label "melhor" pode ser sql-ganho ou sql-perdido aplicada manual pelo
+      // closer — esse é o único caminho pra essas etapas entrarem no dashboard.
+      await registrarTransicao(leadId, aRemover[aRemover.length - 1] || null, melhor, 'manual');
     } catch (err) {
-      console.error('[sql-classifier] erro registrando evento normalização:', err.message);
+      console.error('[sql-classifier] erro registrando evento/transição:', err.message);
     }
   }
 
@@ -285,8 +288,11 @@ export async function classificarSqlSeAplicavel({ lead, conversationId }) {
       tokensIn: cls.tokensIn,
       tokensOut: cls.tokensOut,
     });
+    await registrarTransicao(lead.id, labelAtual || 'humano-atendendo', novaLabel, 'auto', {
+      gatilho: cls.gatilho, confianca: cls.confianca,
+    });
   } catch (err) {
-    console.error('[sql-classifier] erro registrando evento:', err.message);
+    console.error('[sql-classifier] erro registrando evento/transição:', err.message);
   }
 
   console.log(`[sql-classifier] lead=${lead.id} ${labelAtual || 'mql-qualificado'} → ${novaLabel} (conf=${cls.confianca})`);

@@ -118,6 +118,11 @@ export async function enrolarLead(leadId, cadenciaNome) {
 
   await atualizarLead(leadId, { cadencia_id: cad.id, passo_atual: 0, status: 'em_cadencia' });
   await registrarEvento(leadId, 'cadencia_enrolada', { cadencia: cadenciaNome, total_passos: rows.length });
+  // Transição pro dashboard
+  try {
+    const { registrarTransicao } = await import('./supabase-client.js');
+    await registrarTransicao(leadId, null, 'em-cadencia', 'auto', { cadencia: cadenciaNome });
+  } catch (err) { console.error('[cadence] erro registrando transição em-cadencia:', err.message); }
   return data;
 }
 
