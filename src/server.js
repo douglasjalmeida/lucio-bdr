@@ -596,6 +596,19 @@ app.post('/chatwoot-webhook', express.json({
         console.error('[bridge] erro gravando msg do closer:', err.message);
       }
     }
+
+    // Coerência com o caminho "humano respondeu pelo celular": aplica a
+    // mesma label `humano-atendendo` quando o closer responde pelo Chatwoot.
+    // Pipeline (custom view "MQL · 3 · Respondeu" / etc) reflete que tem
+    // humano dentro da conversa, e o watchdog usa essa label como sinal.
+    const convId = ev.conversation?.id;
+    if (convId) {
+      try {
+        await aplicarLabelsAditivo(convId, ['humano-atendendo']);
+      } catch (err) {
+        console.error('[bridge] erro aplicando label humano-atendendo:', err.message);
+      }
+    }
   } catch (err) {
     console.error('[bridge] erro em /chatwoot-webhook:', err);
   }
