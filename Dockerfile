@@ -6,6 +6,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
 COPY src ./src
+COPY public ./public
 COPY .claude/identidade-lucio.md ./.claude/identidade-lucio.md
 
 ENV NODE_ENV=production
