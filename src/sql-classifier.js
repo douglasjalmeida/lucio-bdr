@@ -19,9 +19,11 @@ const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.e
 const MODEL = process.env.LUCIO_SQL_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001';
 const DEBOUNCE_MS = parseInt(process.env.SQL_CLASSIFIER_DEBOUNCE_MS || '30000', 10);
 
-// Hierarquia de progressão. Rank maior = mais avançado. Terminais (ganho/perdido)
-// compartilham rank 4 mas são excludentes.
+// Hierarquia de progressão. O classificador SÓ emite até sql-negociacao.
+// Terminais (sql-ganho/sql-perdido) são aplicados manualmente pelo closer e,
+// se presentes na conv, fazem o classificador parar de rodar.
 const SQL_LABELS = ['sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho', 'sql-perdido'];
+const ETAPAS_AUTOMATIZADAS = new Set(['sql-contato-feito', 'sql-proposta', 'sql-negociacao']);
 const TERMINAIS = new Set(['sql-ganho', 'sql-perdido']);
 
 function rankDeLabel(label) {
@@ -70,19 +72,18 @@ Etapas (use exatamente esses nomes):
 - "sql-contato-feito": closer e lead alinharam uma interação concreta FUTURA — call agendada, visita marcada, link de Meet/Zoom enviado, horário combinado. Ex: "te mando o link", "ficou pra quinta 14h", "passo aí dia 20", "vou te apresentar a proposta amanhã 14h". Promessa de apresentar/mandar proposta NÃO É sql-proposta — é sql-contato-feito.
 - "sql-proposta": closer JÁ ENVIOU proposta/orçamento/valor/PDF formal (verbo no passado, ação concluída). Ex: "segue a proposta anexa", "valor da locação fica R$ X", "te mandei o PDF agora", "acabei de subir o orçamento". Verbo no futuro ("vou mandar", "te mando depois") NÃO conta.
 - "sql-negociacao": lead questionou condições da proposta — parcelamento, desconto, prazo, aprovação interna. Ex: "consigo desconto?", "dá pra parcelar?", "preciso aprovar com a diretoria".
-- "sql-ganho": fechamento confirmado pelo lead. Ex: "fechado!", "pode emitir o contrato", "pode mandar pra assinatura".
-- "sql-perdido": descarte explícito. Ex: "vamos com outro fornecedor", "obra cancelada", "não vamos seguir agora".
 - "manter": nada disso aconteceu ainda — conversa só de aproximação, perguntas técnicas iniciais, alinhamento que não cravou nada.
+
+IMPORTANTE: você NÃO classifica fechamento (sql-ganho) nem descarte (sql-perdido). Essas duas etapas são SEMPRE aplicadas manualmente pelo closer humano, porque são decisões caras demais pra automatizar. Mesmo se o lead disser "fechou, pode emitir" ou "vamos com outro fornecedor", você retorna "manter" — quem decide é o closer.
 
 REGRAS:
 1. Só classifique baseado em SINAIS EXPLÍCITOS na conversa. Sem inferência otimista.
 2. Avança apenas. Se a conv está numa etapa avançada e o trecho recente é só small talk, retorne "manter".
-3. Terminais (sql-ganho/sql-perdido) exigem confirmação clara. Em dúvida, "manter".
-4. Cite no campo "gatilho" o trecho EXATO (até 100 chars) que disparou.
+3. Cite no campo "gatilho" o trecho EXATO (até 100 chars) que disparou.
 
 Responda APENAS JSON válido nesse formato (sem markdown, sem comentário):
 {
-  "etapa": "sql-contato-feito" | "sql-proposta" | "sql-negociacao" | "sql-ganho" | "sql-perdido" | "manter",
+  "etapa": "sql-contato-feito" | "sql-proposta" | "sql-negociacao" | "manter",
   "confianca": "alta" | "media" | "baixa",
   "gatilho": "trecho curto da mensagem que disparou ou vazio se manter"
 }`;
@@ -201,6 +202,11 @@ export async function classificarSqlSeAplicavel({ lead, conversationId }) {
 
   const cls = await classificarComHaiku({ lead, historico: histTexto });
   if (cls.etapa === 'manter') return { skipped: true, reason: 'manter', cls };
+
+  // Guard rail: classificador NUNCA aplica terminais (ganho/perdido). Closer faz manual.
+  if (!ETAPAS_AUTOMATIZADAS.has(cls.etapa)) {
+    return { skipped: true, reason: 'etapa-nao-automatizada', proposta: cls.etapa };
+  }
 
   const novaLabel = cls.etapa;
   const novoRank = rankDeLabel(novaLabel);
