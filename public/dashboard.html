@@ -3,99 +3,400 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lúcio — Dashboard de Pipeline</title>
+<title>Lúcio — Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b0e14;
-    --panel: #131720;
-    --panel-2: #1a1f2b;
-    --border: #232938;
-    --text: #e6e8ee;
-    --muted: #8b93a7;
-    --accent: #4fd1c5;
-    --warn: #f6ad55;
-    --ok: #68d391;
-    --bad: #fc8181;
+    --bg: #07090f;
+    --bg-2: #0a0d16;
+    --panel: rgba(20, 25, 38, 0.55);
+    --panel-solid: #131826;
+    --border: rgba(255, 255, 255, 0.06);
+    --border-hi: rgba(255, 255, 255, 0.12);
+    --text: #f4f6fa;
+    --text-2: #b0b8cc;
+    --muted: #6b7488;
+    --blue: #4ea1ff;
+    --violet: #a78bfa;
+    --teal: #2dd4bf;
+    --amber: #fbbf24;
+    --green: #4ade80;
+    --red: #f87171;
+    --pink: #f472b6;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
   body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.4;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 60% 50% at 20% 0%, rgba(78, 161, 255, 0.10), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 80% 10%, rgba(167, 139, 250, 0.10), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(45, 212, 191, 0.06), transparent 70%);
+    background-attachment: fixed;
+    line-height: 1.5;
+    min-height: 100vh;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-font-smoothing: antialiased;
   }
+  .mono { font-family: 'Geist Mono', ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+
+  /* ── Header ────────────────────────────────────────────── */
   header {
+    position: sticky; top: 0; z-index: 50;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 24px; border-bottom: 1px solid var(--border);
-    background: var(--panel); position: sticky; top: 0; z-index: 10;
+    padding: 14px 32px;
+    background: rgba(7, 9, 15, 0.7);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-bottom: 1px solid var(--border);
   }
-  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.3px; }
-  header .meta { font-size: 12px; color: var(--muted); }
-  .filtros { padding: 16px 24px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--border); }
-  .filtros label { font-size: 12px; color: var(--muted); margin-right: 6px; }
-  .filtros select, .filtros .btn-grupo button {
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
-    padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: conic-gradient(from 220deg at 50% 50%, var(--blue), var(--violet), var(--teal), var(--blue));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 24px rgba(78, 161, 255, 0.3), inset 0 0 0 1px rgba(255,255,255,0.1);
   }
-  .filtros .btn-grupo { display: inline-flex; gap: 4px; }
-  .filtros .btn-grupo button.active { background: var(--accent); color: #0b0e14; border-color: var(--accent); font-weight: 600; }
-  main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
-  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-  .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .kpi .valor { font-size: 28px; font-weight: 700; margin-top: 6px; }
-  .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  .secao { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 20px; }
-  .secao h2 { margin: 0 0 14px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
-  .funil { display: grid; gap: 8px; }
-  .funil-row { display: grid; grid-template-columns: 180px 1fr 60px 90px; gap: 12px; align-items: center; font-size: 13px; }
-  .funil-row .etapa { color: var(--muted); }
-  .funil-row .barra { background: var(--panel-2); height: 22px; border-radius: 4px; overflow: hidden; position: relative; }
-  .funil-row .barra > div { background: linear-gradient(90deg, var(--accent), #4f9fd1); height: 100%; transition: width 0.6s ease; }
-  .funil-row .qtd { font-weight: 600; text-align: right; }
-  .funil-row .tempo { color: var(--muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
-  td { padding: 9px 10px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-  tr:hover td { background: var(--panel-2); }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
-  .badge.em-cadencia { color: var(--muted); }
-  .badge.mql-respondeu, .badge.mql-qualificado { background: rgba(79, 209, 197, 0.15); color: var(--accent); border-color: var(--accent); }
-  .badge.humano-atendendo, .badge.sql-contato-feito, .badge.sql-proposta, .badge.sql-negociacao { background: rgba(246, 173, 85, 0.15); color: var(--warn); border-color: var(--warn); }
-  .badge.sql-ganho { background: rgba(104, 211, 145, 0.2); color: var(--ok); border-color: var(--ok); }
-  .badge.sql-perdido, .badge.encerrado { background: rgba(252, 129, 129, 0.15); color: var(--bad); border-color: var(--bad); }
-  details summary { cursor: pointer; user-select: none; color: var(--accent); }
+  .brand-mark svg { width: 16px; height: 16px; color: #07090f; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .brand-text .t1 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand-text .t2 { font-size: 11px; color: var(--muted); }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 6px 14px 6px 10px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  .countdown-ring {
+    position: relative; width: 22px; height: 22px;
+  }
+  .countdown-ring svg { width: 22px; height: 22px; transform: rotate(-90deg); }
+  .countdown-ring circle { fill: none; stroke-width: 2; }
+  .countdown-ring .track { stroke: rgba(255,255,255,0.08); }
+  .countdown-ring .progress { stroke: var(--teal); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+  .countdown-ring .num {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; color: var(--text);
+  }
+
+  /* ── Filtros ────────────────────────────────────────────── */
+  .filtros { padding: 24px 32px 8px; display: flex; gap: 20px; flex-wrap: wrap; align-items: center; max-width: 1400px; margin: 0 auto; width: 100%; }
+  .filtro-grupo { display: flex; align-items: center; gap: 10px; }
+  .filtro-grupo > label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+
+  .seletor {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 32px 8px 14px; font-size: 13px; cursor: pointer;
+    font-family: inherit; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b0b8cc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 10px center;
+    transition: all 0.18s ease;
+  }
+  .seletor:hover { border-color: var(--border-hi); }
+  .seletor:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(78, 161, 255, 0.15); }
+
+  .pill-group {
+    display: inline-flex; gap: 4px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 4px; border-radius: 12px;
+    position: relative;
+  }
+  .pill-group button {
+    background: transparent; color: var(--text-2); border: none;
+    padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    font-family: inherit; font-weight: 500;
+    transition: color 0.2s ease;
+    position: relative; z-index: 2;
+  }
+  .pill-group button.active { color: #07090f; }
+  .pill-slider {
+    position: absolute; top: 4px; bottom: 4px;
+    background: linear-gradient(135deg, var(--text), #d8def0);
+    border-radius: 8px;
+    transition: left 0.32s cubic-bezier(0.32, 0.72, 0.18, 1), width 0.32s cubic-bezier(0.32, 0.72, 0.18, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    z-index: 1;
+  }
+
+  /* ── Main ──────────────────────────────────────────────── */
+  main { padding: 16px 32px 60px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── KPIs ──────────────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .kpi {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    overflow: hidden;
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0.18, 1), border-color 0.3s ease;
+    animation: fadeUp 0.5s cubic-bezier(0.32, 0.72, 0.18, 1) backwards;
+  }
+  .kpi:nth-child(1) { animation-delay: 0s; }
+  .kpi:nth-child(2) { animation-delay: 0.06s; }
+  .kpi:nth-child(3) { animation-delay: 0.12s; }
+  .kpi:nth-child(4) { animation-delay: 0.18s; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  .kpi:hover { transform: translateY(-2px); border-color: var(--border-hi); }
+  .kpi::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.10), transparent 50%);
+    -webkit-mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none;
+  }
+  .kpi-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+  .kpi-label { font-size: 12px; color: var(--text-2); font-weight: 500; letter-spacing: -0.005em; }
+  .kpi-icon {
+    width: 32px; height: 32px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(78, 161, 255, 0.12);
+    color: var(--blue);
+  }
+  .kpi-icon svg { width: 16px; height: 16px; }
+  .kpi.violet .kpi-icon { background: rgba(167, 139, 250, 0.14); color: var(--violet); }
+  .kpi.green .kpi-icon  { background: rgba(74, 222, 128, 0.14); color: var(--green); }
+  .kpi.red .kpi-icon    { background: rgba(248, 113, 113, 0.14); color: var(--red); }
+  .kpi-valor { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+  .kpi-sub { font-size: 12px; color: var(--text-2); margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
+  .kpi-sub svg { width: 11px; height: 11px; }
+  .kpi-sub.pos { color: var(--green); }
+  .kpi-sub.neg { color: var(--red); }
+
+  /* ── Seções ────────────────────────────────────────────── */
+  .secao {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 24px;
+    margin-bottom: 22px;
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    animation: fadeUp 0.6s 0.24s cubic-bezier(0.32, 0.72, 0.18, 1) backwards;
+  }
+  .secao-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .secao h2 {
+    margin: 0; font-size: 15px; font-weight: 600; color: var(--text);
+    letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .secao h2 .accent {
+    width: 4px; height: 18px; border-radius: 2px;
+    background: linear-gradient(180deg, var(--blue), var(--violet));
+  }
+  .secao h2 .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  /* ── Funil ─────────────────────────────────────────────── */
+  .funil { display: grid; gap: 10px; }
+  .funil-row {
+    display: grid; grid-template-columns: 200px 1fr 60px 110px;
+    gap: 16px; align-items: center; font-size: 13px;
+    padding: 4px 0;
+  }
+  .funil-row .barra-wrap {
+    background: rgba(255,255,255,0.03); height: 10px; border-radius: 999px;
+    overflow: hidden; position: relative;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .funil-row .barra {
+    height: 100%; border-radius: 999px;
+    transition: width 0.7s cubic-bezier(0.32, 0.72, 0.18, 1);
+    position: relative;
+  }
+  .funil-row .barra::after {
+    content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 30%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25));
+    border-radius: inherit;
+  }
+  .funil-row .qtd { font-weight: 600; text-align: right; font-size: 15px; }
+  .funil-row .tempo { color: var(--muted); font-size: 12px; text-align: right; }
+
+  /* ── Badges (cores por etapa) ─────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 6px;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .badge.em-cadencia    { color: #94a3b8; }
+  .badge.mql-respondeu  { color: var(--teal);   background: rgba(45,212,191,0.10); border-color: rgba(45,212,191,0.25); }
+  .badge.mql-qualificado{ color: var(--blue);   background: rgba(78,161,255,0.12); border-color: rgba(78,161,255,0.30); }
+  .badge.humano-atendendo { color: var(--violet); background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.28); }
+  .badge.sql-contato-feito{ color: var(--pink); background: rgba(244,114,182,0.10); border-color: rgba(244,114,182,0.25); }
+  .badge.sql-proposta   { color: var(--amber);  background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.25); }
+  .badge.sql-negociacao { color: #ff9966;       background: rgba(255,153,102,0.10); border-color: rgba(255,153,102,0.25); }
+  .badge.sql-ganho      { color: var(--green);  background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.30); }
+  .badge.sql-perdido    { color: var(--red);    background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.25); }
+  .badge.encerrado      { color: var(--muted);  background: rgba(107,116,136,0.08); }
+
+  /* Cor da barra herda do badge da etapa */
+  .funil-row[data-etapa="em-cadencia"]      .barra { background: linear-gradient(90deg, #94a3b8, #6b7488); }
+  .funil-row[data-etapa="mql-respondeu"]    .barra { background: linear-gradient(90deg, var(--teal), #14b8a6); }
+  .funil-row[data-etapa="mql-qualificado"]  .barra { background: linear-gradient(90deg, var(--blue), #3b82f6); }
+  .funil-row[data-etapa="humano-atendendo"] .barra { background: linear-gradient(90deg, var(--violet), #7c3aed); }
+  .funil-row[data-etapa="sql-contato-feito"].barra,
+  .funil-row[data-etapa="sql-contato-feito"] .barra { background: linear-gradient(90deg, var(--pink), #db2777); }
+  .funil-row[data-etapa="sql-proposta"]     .barra { background: linear-gradient(90deg, var(--amber), #f59e0b); }
+  .funil-row[data-etapa="sql-negociacao"]   .barra { background: linear-gradient(90deg, #ff9966, #ea580c); }
+  .funil-row[data-etapa="sql-ganho"]        .barra { background: linear-gradient(90deg, var(--green), #16a34a); }
+  .funil-row[data-etapa="sql-perdido"]      .barra { background: linear-gradient(90deg, var(--red), #dc2626); }
+  .funil-row[data-etapa="encerrado"]        .barra { background: linear-gradient(90deg, #6b7488, #4b5563); }
+
+  /* ── Tabela ────────────────────────────────────────────── */
+  .tabela-wrap { overflow-x: auto; margin: -8px -8px 0; padding: 8px; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+  th {
+    text-align: left; color: var(--muted); font-weight: 500;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em;
+    position: sticky; top: 0; background: var(--bg-2); z-index: 1;
+  }
+  td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text); }
+  tr { transition: background 0.18s ease; }
+  tbody tr:hover td { background: rgba(255,255,255,0.025); }
+  tbody tr:hover td:first-child { box-shadow: inset 2px 0 0 var(--blue); }
+  .nome { font-weight: 500; color: var(--text); }
+  .empresa { color: var(--text-2); font-size: 12px; }
+  .telefone { color: var(--muted); font-size: 12px; }
+  .tempo-cell { color: var(--text-2); }
+  .origem-badge {
+    font-size: 10px; padding: 2px 7px; border-radius: 4px;
+    background: rgba(255,255,255,0.05); color: var(--text-2);
+    border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .origem-badge.manual { color: var(--amber); background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.2); }
+  .origem-badge.auto   { color: var(--blue);  background: rgba(78,161,255,0.08); border-color: rgba(78,161,255,0.2); }
+
+  details summary {
+    cursor: pointer; user-select: none; color: var(--blue);
+    font-size: 12px; outline: none; padding: 4px 10px; border-radius: 6px;
+    background: rgba(78,161,255,0.08); border: 1px solid rgba(78,161,255,0.18);
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: all 0.18s ease;
+    list-style: none;
+  }
   details summary::-webkit-details-marker { display: none; }
-  .timeline { margin-top: 8px; padding: 10px 14px; background: var(--panel-2); border-radius: 6px; }
-  .timeline ol { margin: 0; padding-left: 18px; font-size: 11px; color: var(--muted); }
-  .timeline ol li { padding: 2px 0; }
-  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; animation: pulse 1.5s ease-in-out infinite; vertical-align: middle; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-  .erro { color: var(--bad); padding: 12px; }
-  .vazio { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+  details summary::after {
+    content: ''; width: 8px; height: 8px;
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg); transition: transform 0.2s ease;
+    margin-left: 2px; margin-top: -3px;
+  }
+  details[open] summary::after { transform: rotate(-135deg); margin-top: 2px; }
+  details summary:hover { background: rgba(78,161,255,0.14); }
+  details[open] summary { background: rgba(78,161,255,0.16); color: var(--text); }
+  .timeline {
+    margin-top: 10px; padding: 14px 16px;
+    background: rgba(7, 9, 15, 0.4); border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .timeline ol { margin: 0; padding-left: 0; list-style: none; }
+  .timeline li {
+    padding: 6px 0 6px 22px; position: relative;
+    font-size: 12px; color: var(--text-2);
+  }
+  .timeline li::before {
+    content: ''; position: absolute; left: 6px; top: 12px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--blue);
+    box-shadow: 0 0 0 3px rgba(78, 161, 255, 0.15);
+  }
+  .timeline li:not(:last-child)::after {
+    content: ''; position: absolute; left: 9px; top: 22px; bottom: -2px; width: 1px;
+    background: var(--border-hi);
+  }
+  .timeline li strong { color: var(--text); font-weight: 500; }
+  .timeline li .ts { color: var(--muted); font-size: 11px; }
+
+  /* ── Estados ───────────────────────────────────────────── */
+  .vazio {
+    text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px;
+    background: rgba(0,0,0,0.15); border-radius: 12px;
+    border: 1px dashed var(--border-hi);
+  }
+  .vazio svg { width: 48px; height: 48px; opacity: 0.4; margin-bottom: 12px; }
+  .erro {
+    color: var(--red); padding: 16px 18px; font-size: 13px;
+    background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: 12px;
+  }
+
+  /* ── Scrollbar refinado ────────────────────────────────── */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); background-clip: padding-box; border: 3px solid transparent; }
+
+  @media (max-width: 720px) {
+    header, .filtros, main { padding-left: 18px; padding-right: 18px; }
+    .funil-row { grid-template-columns: 140px 1fr 50px; }
+    .funil-row .tempo { display: none; }
+  }
 </style>
 </head>
 <body>
+
 <header>
-  <h1>🛰️ Lúcio — Pipeline em tempo real</h1>
-  <div class="meta">
-    <span class="pulse"></span>
-    <span id="last-update">--</span>
-    <span> · próxima em <span id="countdown">10</span>s</span>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <span class="t1">Lúcio</span>
+      <span class="t2">Pipeline em tempo real</span>
+    </div>
+  </div>
+  <div class="status-pill">
+    <span class="status-dot"></span>
+    <span id="last-update">conectando…</span>
+    <span style="opacity:0.5">·</span>
+    <div class="countdown-ring" title="próxima atualização">
+      <svg><circle class="track" cx="11" cy="11" r="9"/><circle class="progress" cx="11" cy="11" r="9" stroke-dasharray="56.55" stroke-dashoffset="0"/></svg>
+      <div class="num" id="countdown">10</div>
+    </div>
   </div>
 </header>
 
 <div class="filtros">
-  <div>
-    <label>Cadência:</label>
-    <select id="cadencia-sel"><option value="">Todas</option></select>
+  <div class="filtro-grupo">
+    <label>Cadência</label>
+    <select id="cadencia-sel" class="seletor"><option value="">Todas</option></select>
   </div>
-  <div>
-    <label>Período:</label>
-    <div class="btn-grupo" id="periodo-grupo">
+  <div class="filtro-grupo">
+    <label>Período</label>
+    <div class="pill-group" id="periodo-grupo">
+      <span class="pill-slider" id="pill-slider"></span>
       <button data-p="hoje">Hoje</button>
-      <button data-p="7d" class="active">7d</button>
-      <button data-p="30d">30d</button>
-      <button data-p="3m">3m</button>
-      <button data-p="6m">6m</button>
+      <button data-p="7d" class="active">7 dias</button>
+      <button data-p="30d">30 dias</button>
+      <button data-p="3m">3 meses</button>
+      <button data-p="6m">6 meses</button>
     </div>
   </div>
 </div>
@@ -104,24 +405,35 @@
   <div id="kpis" class="kpis"></div>
 
   <div class="secao">
-    <h2>Distribuição por etapa atual</h2>
+    <div class="secao-head">
+      <h2><span class="accent"></span>Distribuição por etapa</h2>
+      <span class="hint">leads ativos no período</span>
+    </div>
     <div id="funil" class="funil"></div>
   </div>
 
   <div class="secao">
-    <h2>Leads — etapa atual e tempo</h2>
-    <div style="overflow-x: auto;">
+    <div class="secao-head">
+      <h2><span class="accent"></span>Leads no funil</h2>
+      <span class="hint">ordenado por tempo no estágio atual</span>
+    </div>
+    <div class="tabela-wrap">
       <table id="tabela-leads">
         <thead>
           <tr>
-            <th>Lead</th><th>Empresa</th><th>Telefone</th><th>Etapa atual</th>
+            <th>Lead</th><th>Telefone</th><th>Etapa</th>
             <th>Há quanto tempo</th><th>Origem</th><th>Timeline</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
-    <div id="vazio" class="vazio" style="display:none;">Sem leads nesta janela.</div>
+    <div id="vazio" class="vazio" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <div>Sem leads nesta janela.</div>
+    </div>
   </div>
 </main>
 
@@ -129,14 +441,13 @@
 let periodoAtual = '7d';
 let cadenciaAtual = '';
 let countdown = 10;
+const RING_PERIM = 56.55; // 2 * PI * 9
 
-// Auth via Basic — o browser anexa Authorization automaticamente em todas as
-// requests fetch após a 1ª janela de credenciais, com credentials:'include'.
-function api(path) { return path; }
+function api(p) { return p; }
 const fetchOpts = { credentials: 'include' };
 
 function formatarMs(ms) {
-  if (ms == null || isNaN(ms)) return '-';
+  if (ms == null || isNaN(ms)) return '—';
   const seg = Math.floor(ms / 1000);
   if (seg < 60) return seg + 's';
   const min = Math.floor(seg / 60);
@@ -146,12 +457,9 @@ function formatarMs(ms) {
   const d = Math.floor(h / 24);
   return d + 'd ' + (h % 24) + 'h';
 }
-
 function formatarData(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
-
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -162,6 +470,14 @@ const ETAPAS_ORDEM = [
   'sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho', 'sql-perdido', 'encerrado',
 ];
 
+const ICONS = {
+  users:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55.47.98.97 1.21C12.15 18.75 13 20.24 13 22"/><path d="M14 14.66V17c0 .55-.47.98-.97 1.21C11.85 18.75 11 20.24 11 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>',
+  x:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  arrowUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>',
+};
+
 async function carregarCadencias() {
   try {
     const r = await fetch(api('/api/cadencias'), fetchOpts);
@@ -171,7 +487,7 @@ async function carregarCadencias() {
       for (const c of j.cadencias) {
         const opt = document.createElement('option');
         opt.value = c.id;
-        opt.textContent = c.nome || c.slug || ('#' + c.id);
+        opt.textContent = c.nome || ('#' + c.id);
         sel.appendChild(opt);
       }
     }
@@ -188,7 +504,7 @@ async function carregar() {
       return;
     }
     renderizar(j);
-    document.getElementById('last-update').textContent = 'Atualizado ' + new Date(j.geradoEm).toLocaleTimeString('pt-BR');
+    document.getElementById('last-update').textContent = new Date(j.geradoEm).toLocaleTimeString('pt-BR');
   } catch (e) {
     console.error(e);
     document.getElementById('kpis').innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
@@ -196,58 +512,84 @@ async function carregar() {
 }
 
 function renderizar(m) {
-  // KPIs
   const kpis = [
-    { label: 'Contatos na janela', valor: m.kpis.total_contatos },
-    { label: 'Qualificados (MQL+)', valor: m.kpis.total_qualificados, sub: m.kpis.taxa_qualificacao_pct + '% do total' },
-    { label: 'Ganhos', valor: m.kpis.total_ganhos, sub: m.kpis.taxa_conversao_pct + '% conversão' },
-    { label: 'Perdidos', valor: m.kpis.total_perdidos },
+    { label: 'Contatos na janela', valor: m.kpis.total_contatos, icon: ICONS.users, cls: '' },
+    { label: 'Qualificados (MQL+)', valor: m.kpis.total_qualificados, sub: m.kpis.taxa_qualificacao_pct + '% do total', icon: ICONS.check, cls: 'violet', subCls: 'pos' },
+    { label: 'Ganhos', valor: m.kpis.total_ganhos, sub: m.kpis.taxa_conversao_pct + '% conversão', icon: ICONS.trophy, cls: 'green', subCls: 'pos' },
+    { label: 'Perdidos', valor: m.kpis.total_perdidos, icon: ICONS.x, cls: 'red' },
   ];
   document.getElementById('kpis').innerHTML = kpis.map(k =>
-    `<div class="kpi"><div class="label">${k.label}</div><div class="valor">${k.valor}</div>${k.sub ? `<div class="sub">${k.sub}</div>` : ''}</div>`
+    `<div class="kpi ${k.cls}">
+       <div class="kpi-head">
+         <div class="kpi-label">${k.label}</div>
+         <div class="kpi-icon">${k.icon}</div>
+       </div>
+       <div class="kpi-valor mono">${k.valor}</div>
+       ${k.sub ? `<div class="kpi-sub ${k.subCls || ''}">${ICONS.arrowUp}${k.sub}</div>` : ''}
+     </div>`
   ).join('');
 
-  // Funil
   const totalMax = Math.max(...Object.values(m.distribuicao_etapa_atual), 1);
-  const funilHtml = ETAPAS_ORDEM.map(et => {
+  document.getElementById('funil').innerHTML = ETAPAS_ORDEM.map(et => {
     const qtd = m.distribuicao_etapa_atual[et] || 0;
     const pct = (qtd / totalMax) * 100;
     const tm = m.tempo_medio_por_etapa[et];
-    const tempoStr = tm ? `~${formatarMs(tm.media_ms)} (n=${tm.n})` : '-';
-    return `<div class="funil-row">
-      <span class="etapa"><span class="badge ${et}">${et}</span></span>
-      <div class="barra"><div style="width:${pct}%"></div></div>
-      <span class="qtd">${qtd}</span>
-      <span class="tempo">${tempoStr}</span>
+    const tempoStr = tm ? `~${formatarMs(tm.media_ms)}` : '—';
+    return `<div class="funil-row" data-etapa="${et}">
+      <span><span class="badge ${et}">${et}</span></span>
+      <div class="barra-wrap"><div class="barra" style="width:${pct}%"></div></div>
+      <span class="qtd mono">${qtd}</span>
+      <span class="tempo mono">${tempoStr}</span>
     </div>`;
   }).join('');
-  document.getElementById('funil').innerHTML = funilHtml;
 
-  // Tabela de leads — ordenada por tempo no estágio atual desc
   const leads = [...m.leads].sort((a, b) => b.tempo_no_estagio_atual_ms - a.tempo_no_estagio_atual_ms);
   const tbody = document.querySelector('#tabela-leads tbody');
   document.getElementById('vazio').style.display = leads.length ? 'none' : 'block';
+  document.querySelector('.tabela-wrap').style.display = leads.length ? '' : 'none';
+
   tbody.innerHTML = leads.map(l => {
     const ultimaOrigem = l.transicoes[l.transicoes.length - 1]?.origem || '-';
+    const origemCls = ['auto', 'manual'].includes(ultimaOrigem) ? ultimaOrigem : '';
     const timeline = l.transicoes.map(t =>
-      `<li>${formatarData(t.em)} — ${escapeHtml(t.de || '∅')} → <strong>${escapeHtml(t.para)}</strong> <em>(${escapeHtml(t.origem)})</em></li>`
+      `<li><span class="ts">${formatarData(t.em)}</span> — ${escapeHtml(t.de || '∅')} → <strong>${escapeHtml(t.para)}</strong> <span class="origem-badge ${['auto','manual'].includes(t.origem)?t.origem:''}">${escapeHtml(t.origem)}</span></li>`
     ).join('');
     return `<tr>
-      <td>${escapeHtml(l.nome)}</td>
-      <td>${escapeHtml(l.empresa)}</td>
-      <td>${escapeHtml(l.telefone)}</td>
+      <td>
+        <div class="nome">${escapeHtml(l.nome || '—')}</div>
+        ${l.empresa ? `<div class="empresa">${escapeHtml(l.empresa)}</div>` : ''}
+      </td>
+      <td class="mono telefone">${escapeHtml(l.telefone)}</td>
       <td><span class="badge ${l.etapa_atual}">${l.etapa_atual}</span></td>
-      <td>${formatarMs(l.tempo_no_estagio_atual_ms)}</td>
-      <td>${escapeHtml(ultimaOrigem)}</td>
-      <td><details><summary>${l.transicoes.length} transições</summary><div class="timeline"><ol>${timeline}</ol></div></details></td>
+      <td class="mono tempo-cell">${formatarMs(l.tempo_no_estagio_atual_ms)}</td>
+      <td><span class="origem-badge ${origemCls}">${escapeHtml(ultimaOrigem)}</span></td>
+      <td><details><summary>${l.transicoes.length}</summary><div class="timeline"><ol>${timeline}</ol></div></details></td>
     </tr>`;
   }).join('');
 }
+
+// ── Pill slider animado pro filtro de período ──────────────
+function moverSlider(btn) {
+  const slider = document.getElementById('pill-slider');
+  const r = btn.getBoundingClientRect();
+  const parent = btn.parentElement.getBoundingClientRect();
+  slider.style.left = (r.left - parent.left) + 'px';
+  slider.style.width = r.width + 'px';
+}
+window.addEventListener('load', () => {
+  const active = document.querySelector('#periodo-grupo button.active');
+  if (active) moverSlider(active);
+});
+window.addEventListener('resize', () => {
+  const active = document.querySelector('#periodo-grupo button.active');
+  if (active) moverSlider(active);
+});
 
 document.getElementById('periodo-grupo').addEventListener('click', e => {
   if (e.target.tagName !== 'BUTTON') return;
   document.querySelectorAll('#periodo-grupo button').forEach(b => b.classList.remove('active'));
   e.target.classList.add('active');
+  moverSlider(e.target);
   periodoAtual = e.target.dataset.p;
   carregar();
 });
@@ -257,7 +599,8 @@ document.getElementById('cadencia-sel').addEventListener('change', e => {
   carregar();
 });
 
-// Polling 10s + countdown visual
+// ── Countdown + ring SVG ───────────────────────────────────
+const ring = document.querySelector('.countdown-ring .progress');
 setInterval(() => {
   countdown--;
   if (countdown <= 0) {
@@ -265,6 +608,8 @@ setInterval(() => {
     carregar();
   }
   document.getElementById('countdown').textContent = countdown;
+  const offset = RING_PERIM * (1 - countdown / 10);
+  if (ring) ring.style.strokeDashoffset = offset;
 }, 1000);
 
 (async () => {
