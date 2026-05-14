@@ -601,13 +601,20 @@ app.post('/chatwoot-webhook', express.json({
     // mesma label `humano-atendendo` quando o closer responde pelo Chatwoot.
     // Pipeline (custom view "MQL · 3 · Respondeu" / etc) reflete que tem
     // humano dentro da conversa, e o watchdog usa essa label como sinal.
-    const convId = ev.conversation?.id;
+    const convId = ev.conversation?.id
+      || ev.conversation_id
+      || ev.message?.conversation_id
+      || ev.messages?.[0]?.conversation_id;
+    console.log(`[bridge] chatwoot-webhook closer convId=${convId} (keys=${Object.keys(ev).join(',')}, conv_keys=${ev.conversation ? Object.keys(ev.conversation).join(',') : 'no_conv'})`);
     if (convId) {
       try {
         await aplicarLabelsAditivo(convId, ['humano-atendendo']);
+        console.log(`[bridge] label humano-atendendo aplicada convId=${convId}`);
       } catch (err) {
         console.error('[bridge] erro aplicando label humano-atendendo:', err.message);
       }
+    } else {
+      console.warn(`[bridge] chatwoot-webhook closer: não achou convId no payload`);
     }
   } catch (err) {
     console.error('[bridge] erro em /chatwoot-webhook:', err);
