@@ -13,6 +13,7 @@ import {
 import { deveResponder, executarHandoff } from './handoff.js';
 import { gerarRespostaInbound } from './lucio-agent.js';
 import { avaliarQualificacao } from './qualifier.js';
+import { classificarSqlSeAplicavel } from './sql-classifier.js';
 import {
   chatwootEnabled,
   garantirLeadNoChatwoot,
@@ -105,6 +106,9 @@ async function processarSeLeadMudo({ telefone, nome, mensagem, chatid }) {
       });
       if (cw?.conversationId) {
         await espelharMensagemConversa({ conversationId: cw.conversationId, content: mensagem, direction: 'in' });
+        // F5: classificador SQL contínuo — fire and forget
+        classificarSqlSeAplicavel({ lead, conversationId: cw.conversationId })
+          .catch(err => console.error('[bridge] erro sql-classifier (lead mudo):', err.message));
       }
     } catch (err) {
       console.error('[bridge] erro espelhando inbound (mudo) no Chatwoot:', err.message);
@@ -615,6 +619,17 @@ app.post('/chatwoot-webhook', express.json({
         console.log(`[bridge] label humano-atendendo aplicada convId=${convId}`);
       } catch (err) {
         console.error('[bridge] erro aplicando label humano-atendendo:', err.message);
+      }
+
+      // F5: classificador SQL contínuo após msg do closer
+      try {
+        const lead = await buscarLeadPorTelefone(telefone);
+        if (lead) {
+          classificarSqlSeAplicavel({ lead, conversationId: convId })
+            .catch(err => console.error('[bridge] erro sql-classifier (closer):', err.message));
+        }
+      } catch (err) {
+        console.error('[bridge] erro carregando lead pro sql-classifier:', err.message);
       }
     } else {
       console.warn(`[bridge] chatwoot-webhook closer: não achou convId no payload`);
