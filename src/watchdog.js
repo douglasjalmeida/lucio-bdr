@@ -13,7 +13,7 @@ import {
 } from './supabase-client.js';
 import {
   chatwootEnabled, garantirLeadNoChatwoot, espelharMensagemConversa,
-  addNotaPrivada, removerLabels,
+  addNotaPrivada, removerLabels, registrarOutboundDoBridge,
 } from './chatwoot-client.js';
 import { gerarRespostaInbound } from './lucio-agent.js';
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
@@ -76,6 +76,7 @@ export async function revisarHandoffsAbandonados() {
       });
       if (!resposta) { console.warn(`[watchdog] lead ${lead.id}: SDK vazio`); continue; }
 
+      registrarOutboundDoBridge({ telefone: lead.telefone, conteudo: resposta });
       await enviarTextoImediato({ telefone: lead.telefone, texto: resposta });
 
       await gravarMensagem({

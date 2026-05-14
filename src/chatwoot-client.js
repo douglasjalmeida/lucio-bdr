@@ -150,6 +150,49 @@ export function foiEspelhadoPeloBridge(id) {
   return true;
 }
 
+// Segundo cache, baseado em (telefone + hash do conteúdo). É o cinto de
+// segurança caso o filtro por ID falhe (formato diferente entre POST response
+// e webhook payload, restart de processo, múltiplas réplicas, etc).
+// Se o bridge enviou esse conteúdo pra esse telefone nos últimos 90s, qualquer
+// webhook outgoing com o mesmo par é tratado como eco e ignorado.
+const outboundByPhoneContent = new Map(); // key -> expiresAt
+const OUTBOUND_TTL_MS = 90_000;
+const OUTBOUND_MAX = 5000;
+
+function hashConteudo(s) {
+  // hash leve e estável; não precisa ser criptográfico
+  const str = String(s || '');
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return h.toString(36);
+}
+
+function chaveOutbound(telefone, conteudo) {
+  const tel = String(telefone || '').replace(/\D/g, '');
+  return `${tel}|${hashConteudo(conteudo)}`;
+}
+
+export function registrarOutboundDoBridge({ telefone, conteudo }) {
+  if (!telefone || !conteudo) return;
+  const k = chaveOutbound(telefone, conteudo);
+  const now = Date.now();
+  for (const [key, exp] of outboundByPhoneContent) if (exp <= now) outboundByPhoneContent.delete(key);
+  if (outboundByPhoneContent.size >= OUTBOUND_MAX) {
+    const firstKey = outboundByPhoneContent.keys().next().value;
+    if (firstKey !== undefined) outboundByPhoneContent.delete(firstKey);
+  }
+  outboundByPhoneContent.set(k, now + OUTBOUND_TTL_MS);
+}
+
+export function jaEnviadoPeloBridge({ telefone, conteudo }) {
+  if (!telefone || !conteudo) return false;
+  const k = chaveOutbound(telefone, conteudo);
+  const exp = outboundByPhoneContent.get(k);
+  if (!exp) return false;
+  if (exp <= Date.now()) { outboundByPhoneContent.delete(k); return false; }
+  return true;
+}
+
 // Espelha mensagem na conversa. direction: 'in' (lead) ou 'out' (Lúcio/humano).
 export async function espelharMensagemConversa({ conversationId, content, direction, isPrivate = false }) {
   if (!enabled || !conversationId) return null;

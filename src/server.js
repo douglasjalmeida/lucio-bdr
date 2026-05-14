@@ -21,6 +21,8 @@ import {
   removerLabels,
   foiEspelhadoPeloBridge,
   addNotaPrivada,
+  registrarOutboundDoBridge,
+  jaEnviadoPeloBridge,
 } from './chatwoot-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
 import { revisarHandoffsAbandonados } from './watchdog.js';
@@ -220,6 +222,8 @@ async function processarBatch(items) {
   }
 
   if (N8N_OUT_WEBHOOK_URL) {
+    // Registra ANTES de enviar pra cobrir webhook que volta antes da response.
+    registrarOutboundDoBridge({ telefone, conteudo: resposta });
     const payload = { telefone, resposta, lead_id: lead?.id ?? null, chatid, passo: null, modo_no_momento: lead?.modo ?? 'bot' };
     try {
       const r = await fetch(N8N_OUT_WEBHOOK_URL, {
@@ -308,6 +312,7 @@ async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
 
       let uazapiCampaignId = null;
       if (N8N_OUTBOUND_WEBHOOK_URL) {
+        registrarOutboundDoBridge({ telefone: p.lead.telefone, conteudo: texto });
         const r = await fetch(N8N_OUTBOUND_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -500,7 +505,9 @@ app.post('/chatwoot-webhook', express.json({
     // Anti-loop: se foi o próprio bridge que espelhou essa msg (público ou
     // nota privada de handoff), Chatwoot redispara o webhook — ignora.
     const msgId = ev.id || ev.message?.id;
-    if (foiEspelhadoPeloBridge(msgId)) {
+    const matched = foiEspelhadoPeloBridge(msgId);
+    console.log(`[bridge] chatwoot-webhook msg outgoing id=${msgId} mirror_match=${matched} keys=${Object.keys(ev).join(',')}`);
+    if (matched) {
       console.log(`[bridge] chatwoot-webhook ignora msg id=${msgId} (espelho do próprio bridge)`);
       return;
     }
@@ -544,6 +551,13 @@ app.post('/chatwoot-webhook', express.json({
     const conteudo = ev.content || '';
     if (!telefone || !conteudo) {
       console.warn('[bridge] chatwoot-webhook sem telefone/conteúdo:', { telefone, len: conteudo.length });
+      return;
+    }
+
+    // Cinto de segurança independente do ID: se o bridge ENVIOU esse conteúdo
+    // pra esse telefone nos últimos 90s, o webhook é eco — não reenvia.
+    if (jaEnviadoPeloBridge({ telefone, conteudo })) {
+      console.log(`[bridge] chatwoot-webhook ignora eco por (telefone+conteúdo) id=${msgId} tel=${telefone}`);
       return;
     }
 
