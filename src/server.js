@@ -13,7 +13,7 @@ import {
 import { deveResponder, executarHandoff } from './handoff.js';
 import { gerarRespostaInbound } from './lucio-agent.js';
 import { avaliarQualificacao } from './qualifier.js';
-import { classificarSqlSeAplicavel } from './sql-classifier.js';
+import { classificarSqlSeAplicavel, normalizarLabelsSqlSeNecessario } from './sql-classifier.js';
 import {
   chatwootEnabled,
   garantirLeadNoChatwoot,
@@ -466,42 +466,64 @@ app.post('/chatwoot-webhook', express.json({
     const eventName = ev.event;
 
     // conversation_updated: Chatwoot dispara quando labels mudam.
-    // Se a label `devolver-lucio` está presente → devolve lead pro bot.
     if (eventName === 'conversation_updated') {
       const labels = ev.labels || ev.conversation?.labels || ev.messages?.[0]?.conversation?.labels || [];
-      if (!Array.isArray(labels) || !labels.includes('devolver-lucio')) return;
+      const convId = ev.id || ev.conversation?.id;
       const telefone = ev.meta?.sender?.phone_number
         || ev.contact_inbox?.contact?.phone_number
         || ev.messages?.[0]?.conversation?.meta?.sender?.phone_number
         || ev.conversation?.meta?.sender?.phone_number;
-      if (!telefone) {
-        console.warn('[bridge] conversation_updated com label devolver-lucio mas sem telefone identificável');
-        return;
-      }
-      const convId = ev.id || ev.conversation?.id;
-      try {
-        const lead = await buscarLeadPorTelefone(telefone);
-        if (!lead) { console.warn(`[bridge] devolver-lucio: lead não encontrado tel=${telefone}`); return; }
-        let nota;
-        if (lead.modo === 'bot') {
-          console.log(`[bridge] devolver-lucio: lead ${lead.id} já está em bot — nada a fazer`);
-          nota = `ℹ️ Lead já estava com o Lúcio. Label removida.`;
-        } else {
-          await devolverPraBot(lead.id);
-          console.log(`[bridge] devolver-lucio: lead ${lead.id} voltou pra bot`);
-          const hora = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
-          nota = `✅ Lúcio retomou o atendimento às ${hora}.`;
+
+      // Caso A: devolver-lucio → devolve lead pro bot
+      if (Array.isArray(labels) && labels.includes('devolver-lucio')) {
+        if (!telefone) {
+          console.warn('[bridge] conversation_updated com label devolver-lucio mas sem telefone identificável');
+          return;
         }
         try {
-          if (convId) {
-            await removerLabels(convId, ['devolver-lucio', 'humano-atendendo', 'mql-qualificado']);
-            await aplicarLabelsAditivo(convId, ['mql-em-cadencia']);
-            await addNotaPrivada(convId, nota);
+          const lead = await buscarLeadPorTelefone(telefone);
+          if (!lead) { console.warn(`[bridge] devolver-lucio: lead não encontrado tel=${telefone}`); return; }
+          let nota;
+          if (lead.modo === 'bot') {
+            console.log(`[bridge] devolver-lucio: lead ${lead.id} já está em bot — nada a fazer`);
+            nota = `ℹ️ Lead já estava com o Lúcio. Label removida.`;
+          } else {
+            await devolverPraBot(lead.id);
+            console.log(`[bridge] devolver-lucio: lead ${lead.id} voltou pra bot`);
+            const hora = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+            nota = `✅ Lúcio retomou o atendimento às ${hora}.`;
           }
-        } catch (err) { console.error('[bridge] erro escrevendo feedback de devolução:', err.message); }
-      } catch (err) {
-        console.error('[bridge] erro processando devolver-lucio:', err.message);
-        try { if (convId) await addNotaPrivada(convId, `⚠️ Falha ao devolver pro Lúcio: ${err.message}`); } catch {}
+          try {
+            if (convId) {
+              await removerLabels(convId, ['devolver-lucio', 'humano-atendendo', 'mql-qualificado']);
+              await aplicarLabelsAditivo(convId, ['mql-em-cadencia']);
+              await addNotaPrivada(convId, nota);
+            }
+          } catch (err) { console.error('[bridge] erro escrevendo feedback de devolução:', err.message); }
+        } catch (err) {
+          console.error('[bridge] erro processando devolver-lucio:', err.message);
+          try { if (convId) await addNotaPrivada(convId, `⚠️ Falha ao devolver pro Lúcio: ${err.message}`); } catch {}
+        }
+        return;
+      }
+
+      // Caso B: normalização de labels SQL. Closer aplicou manualmente uma
+      // sql-* (ex: mandou proposta por email e marcou sql-proposta na mão) →
+      // limpamos labels SQL anteriores pra manter só a mais avançada. Também
+      // cobre o caso do classificador automático, que já remove antes de
+      // aplicar — aqui é idempotente.
+      const sqlLabels = ['sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho', 'sql-perdido'];
+      const sqlPresentes = Array.isArray(labels) ? labels.filter(l => sqlLabels.includes(l)) : [];
+      if (sqlPresentes.length >= 2 && convId) {
+        let leadId = null;
+        if (telefone) {
+          try {
+            const lead = await buscarLeadPorTelefone(telefone);
+            leadId = lead?.id || null;
+          } catch { /* tolerante */ }
+        }
+        normalizarLabelsSqlSeNecessario({ conversationId: convId, leadId })
+          .catch(err => console.error('[bridge] erro normalizando SQL labels:', err.message));
       }
       return;
     }

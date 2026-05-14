@@ -175,6 +175,56 @@ async function aplicarTransicao({ conversationId, labelAtual, labelNova, gatilho
   catch (err) { console.error('[sql-classifier] erro escrevendo nota:', err.message); }
 }
 
+// Normaliza labels SQL: dado que a conv tem N labels sql-* aplicadas, mantém só
+// a mais avançada (rank maior) e remove as anteriores. Idempotente — se já está
+// normalizada, no-op. Chamado quando closer aplica label manualmente no Chatwoot
+// (ex: mandou proposta por email e aplica sql-proposta na mão, queremos que
+// sql-contato-feito saia automaticamente).
+//
+// Também marca terminal (ganho/perdido) como label mais avançada se presente,
+// porque closer venceu/perdeu a venda e queremos limpar o caminho.
+export async function normalizarLabelsSqlSeNecessario({ conversationId, leadId = null }) {
+  if (!chatwootEnabled() || !conversationId) return { skipped: true, reason: 'sem-contexto' };
+
+  let labels;
+  try { labels = await labelsAtuais(conversationId); }
+  catch (err) { return { skipped: true, reason: 'erro-labels', erro: err.message }; }
+
+  const sqlPresentes = labels.filter(l => SQL_LABELS.includes(l));
+  if (sqlPresentes.length < 2) return { skipped: true, reason: 'nada-a-normalizar', sqlPresentes };
+
+  // Mais avançada por rank. Empate terminal (ganho/perdido) é descartado — não
+  // tratamos, closer deve aplicar só uma das duas.
+  let melhor = sqlPresentes[0];
+  for (const l of sqlPresentes) if (rankDeLabel(l) > rankDeLabel(melhor)) melhor = l;
+
+  const aRemover = sqlPresentes.filter(l => l !== melhor);
+  if (!aRemover.length) return { skipped: true, reason: 'ja-normalizado' };
+
+  try {
+    await removerLabels(conversationId, aRemover);
+    console.log(`[sql-classifier] normalização: convId=${conversationId} mantém ${melhor}, remove ${aRemover.join(',')}`);
+  } catch (err) {
+    console.error('[sql-classifier] erro normalizando labels:', err.message);
+    return { skipped: true, reason: 'erro-remove', erro: err.message };
+  }
+
+  // Registra evento pra rastreabilidade (manual ou automático, tanto faz).
+  if (leadId) {
+    try {
+      await registrarEvento(leadId, 'sql_pipeline_normalizado', {
+        mantida: melhor,
+        removidas: aRemover,
+        origem: 'manual-ou-auto',
+      });
+    } catch (err) {
+      console.error('[sql-classifier] erro registrando evento normalização:', err.message);
+    }
+  }
+
+  return { ok: true, mantida: melhor, removidas: aRemover };
+}
+
 // Entry point. Chamado pelo server após mensagem do lead OU do closer em conv pós-handoff.
 // Idempotente, com debounce. Não bloqueia o fluxo do bridge — chamar sem await.
 export async function classificarSqlSeAplicavel({ lead, conversationId }) {
