@@ -15,7 +15,7 @@ import {
   chatwootEnabled, garantirLeadNoChatwoot, espelharMensagemConversa,
   addNotaPrivada, removerLabels, registrarOutboundDoBridge,
 } from './chatwoot-client.js';
-import { gerarRespostaInbound } from './lucio-agent.js';
+import { gerarRespostaInbound, pareceVazamentoInterno } from './lucio-agent.js';
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import { proximoSlotUtil } from './cadence-engine.js';
 
@@ -75,6 +75,11 @@ export async function revisarHandoffsAbandonados() {
         lead, historico, mensagemAtual: ultima.texto,
       });
       if (!resposta) { console.warn(`[watchdog] lead ${lead.id}: SDK vazio`); continue; }
+      if (pareceVazamentoInterno(resposta)) {
+        console.error(`[watchdog] BLOQUEADO: resposta parece estado interno, NÃO enviada ao lead ${lead.id} :: "${resposta.slice(0, 200)}"`);
+        await registrarEvento(lead.id, 'resposta_bloqueada_vazamento', { origem: 'watchdog', trecho: resposta.slice(0, 300) });
+        continue;
+      }
 
       registrarOutboundDoBridge({ telefone: lead.telefone, conteudo: resposta });
       await enviarTextoImediato({ telefone: lead.telefone, texto: resposta });

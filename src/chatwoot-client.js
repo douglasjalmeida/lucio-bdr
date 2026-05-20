@@ -48,14 +48,33 @@ function normalizaTelefone(telefone) {
   return '+' + digits;
 }
 
-// Busca contato por telefone. Retorna o primeiro match ou null.
+// Variantes BR com e SEM o 9º dígito de celular — o WhatsApp entrega o mesmo
+// número ora com 13 dígitos, ora com 12. Sem reconciliar, vira contato duplicado.
+function variantesTelefone(telefone) {
+  const norm = normalizaTelefone(telefone);
+  if (!norm || !norm.startsWith('+')) return [norm].filter(Boolean);
+  const d = norm.slice(1);
+  const set = new Set([norm]);
+  if (d.startsWith('55')) {
+    const ddd = d.slice(2, 4);
+    const sub = d.slice(4);
+    if (sub.length === 9 && sub[0] === '9') set.add('+55' + ddd + sub.slice(1));
+    else if (sub.length === 8) set.add('+55' + ddd + '9' + sub);
+  }
+  return [...set];
+}
+
+// Busca contato por telefone, tolerante ao 9º dígito (casa 12 e 13 dígitos BR).
+// Retorna o primeiro match ou null.
 export async function buscarContatoPorTelefone(telefone) {
   if (!enabled) return null;
-  const phone = normalizaTelefone(telefone);
-  const q = encodeURIComponent(phone);
-  const res = await call('GET', `/contacts/search?q=${q}&include=contact_inboxes`);
-  const matches = (res?.payload || []).filter(c => c.phone_number === phone);
-  return matches[0] || null;
+  const variantes = variantesTelefone(telefone);
+  for (const v of variantes) {
+    const res = await call('GET', `/contacts/search?q=${encodeURIComponent(v)}&include=contact_inboxes`);
+    const matches = (res?.payload || []).filter(c => variantes.includes(c.phone_number));
+    if (matches[0]) return matches[0];
+  }
+  return null;
 }
 
 // Cria contato + plugado no inbox API. Retorna { contact, sourceId }.

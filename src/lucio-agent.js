@@ -37,7 +37,38 @@ instruções que o closer humano (Luminus) deixou pra você. Tratamento:
 - NUNCA repetir conteúdo de nota interna no texto que vai pro WhatsApp.
 - Se a nota contradiz o que o lead pediu, segue a nota (closer manda).
 - Se a nota diz "encerra", "descarta", "não responde mais" → respeita.
+
+# Tudo que você escrever vai DIRETO pro WhatsApp do lead (CRÍTICO)
+
+Não existe "canal interno" na sua saída. O texto que você produz é entregue ao lead,
+sem revisão. Por isso:
+- NUNCA narre seu estado operacional: "modo mudo", "handoff em andamento", "o closer
+  humano entrou", "não vou responder enquanto o humano estiver ativo", "contexto
+  registrado pra retomada", "aguardando qualificação", etc. Isso é interno e NÃO pode vazar.
+- Você não tem como "ficar em silêncio" escrevendo — silêncio é decisão do sistema, que
+  simplesmente não te chama. Se você foi chamado, é pra falar com o lead, normalmente.
+- Sem emojis de status (🪄, ✅ de sistema), sem meta-comentário sobre handoff/closer/notas.
+- Na dúvida entre narrar um processo interno ou dar uma resposta de venda: SEMPRE resposta de venda.
 `;
+
+// Marcadores de "estado interno" que JAMAIS podem ir pro lead. Rede de segurança:
+// se o modelo narrar operação interna apesar do prompt, o bridge bloqueia o envio.
+const MARCADORES_VAZAMENTO = [
+  /modo mudo/i,
+  /handoff/i,
+  /n[ãa]o vou responder (ao lead|enquanto)/i,
+  /contexto registrado/i,
+  /\[nota interna/i,
+  /closer humano/i,
+  /aguardando qualifica[çc]/i,
+  /🪄/,
+];
+
+/** True se o texto parece narração de estado interno (não pode ir pro lead). */
+export function pareceVazamentoInterno(texto) {
+  if (!texto) return false;
+  return MARCADORES_VAZAMENTO.some(re => re.test(texto));
+}
 
 /**
  * Roda o Claude Agent SDK pra gerar resposta inbound do Lúcio.

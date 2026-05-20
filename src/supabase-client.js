@@ -29,12 +29,33 @@ export function normalizaTelefone(telefone) {
   return digits ? '+' + digits : t;
 }
 
+// Gera as variantes BR de um número (com e SEM o 9º dígito de celular).
+// O WhatsApp entrega o mesmo celular ora com 13 dígitos (+55 DD 9 XXXXXXXX),
+// ora com 12 (+55 DD XXXXXXXX). Sem reconciliar, cada forma vira um lead/contato
+// distinto. Esta função devolve todas as formas equivalentes pra casar no lookup.
+export function variantesTelefone(telefone) {
+  const norm = normalizaTelefone(telefone);
+  if (!norm || !norm.startsWith('+')) return [norm].filter(Boolean);
+  const d = norm.slice(1);
+  const set = new Set([norm]);
+  if (d.startsWith('55')) {
+    const ddd = d.slice(2, 4);
+    const sub = d.slice(4);
+    if (sub.length === 9 && sub[0] === '9') set.add('+55' + ddd + sub.slice(1)); // tem 9 → sem 9
+    else if (sub.length === 8) set.add('+55' + ddd + '9' + sub);                  // sem 9 → com 9
+  }
+  return [...set];
+}
+
 export async function buscarLeadPorTelefone(telefone) {
   ensure();
-  const norm = normalizaTelefone(telefone);
-  const { data, error } = await supabase.from('leads').select('*').eq('telefone', norm).maybeSingle();
+  const variantes = variantesTelefone(telefone);
+  const { data, error } = await supabase
+    .from('leads').select('*')
+    .in('telefone', variantes)
+    .order('id', { ascending: true });
   if (error) throw error;
-  return data;
+  return (data && data[0]) || null;
 }
 
 export async function criarLead({ nome, empresa, telefone, segmento, origem = 'inbound' }) {
@@ -156,6 +177,70 @@ export async function listarLeadsPorIds(ids) {
     .in('id', ids);
   if (error) throw error;
   return data || [];
+}
+
+// ─── Controle global do outbound (config_bridge) ─────────────────────────────
+
+// Estado do envio outbound: 'ativo' | 'pausado' | 'encerrado'. Persistido pra
+// sobreviver a restart do container. Default 'ativo' se a chave não existir.
+export async function getOutboundEstado() {
+  ensure();
+  const { data, error } = await supabase
+    .from('config_bridge')
+    .select('valor, atualizado_em, atualizado_por')
+    .eq('chave', 'outbound_estado')
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    estado: data?.valor || 'ativo',
+    atualizado_em: data?.atualizado_em || null,
+    atualizado_por: data?.atualizado_por || null,
+  };
+}
+
+export async function setOutboundEstado(estado, atualizado_por = 'dashboard') {
+  ensure();
+  if (!['ativo', 'pausado', 'encerrado'].includes(estado)) {
+    throw new Error(`estado inválido: ${estado}`);
+  }
+  const { data, error } = await supabase
+    .from('config_bridge')
+    .upsert({ chave: 'outbound_estado', valor: estado, atualizado_em: new Date().toISOString(), atualizado_por }, { onConflict: 'chave' })
+    .select('valor, atualizado_em, atualizado_por')
+    .single();
+  if (error) throw error;
+  return { estado: data.valor, atualizado_em: data.atualizado_em, atualizado_por: data.atualizado_por };
+}
+
+// ─── Mensagens enviadas (pro dashboard) ──────────────────────────────────────
+
+// Lista mensagens que saíram pro lead (direcao='out'): toques outbound da IA,
+// respostas inbound da IA e mensagens do closer humano. Join com leads pra nome/
+// empresa/telefone e pra permitir filtro por cadência.
+export async function listarMensagensEnviadas({ desde = null, cadenciaId = null, limit = 100 } = {}) {
+  ensure();
+  let q = supabase
+    .from('mensagens')
+    .select('id, texto, autor, passo, enviada_em, modo_no_momento, leads!inner ( id, nome, empresa, telefone, cadencia_id )')
+    .eq('direcao', 'out')
+    .order('enviada_em', { ascending: false })
+    .limit(limit);
+  if (desde) q = q.gte('enviada_em', desde);
+  if (cadenciaId) q = q.eq('leads.cadencia_id', cadenciaId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data || []).map(m => ({
+    id: m.id,
+    texto: m.texto,
+    autor: m.autor,
+    passo: m.passo,
+    enviada_em: m.enviada_em,
+    modo_no_momento: m.modo_no_momento,
+    lead_id: m.leads?.id ?? null,
+    nome: m.leads?.nome || '',
+    empresa: m.leads?.empresa || '',
+    telefone: m.leads?.telefone || '',
+  }));
 }
 
 export async function agendarProximoPasso(lead_id, passo, agendado_para) {

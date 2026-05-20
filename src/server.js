@@ -9,9 +9,12 @@ import {
   devolverPraBot,
   atualizarLead,
   registrarEvento,
+  getOutboundEstado,
+  setOutboundEstado,
+  listarMensagensEnviadas,
 } from './supabase-client.js';
 import { deveResponder, executarHandoff } from './handoff.js';
-import { gerarRespostaInbound } from './lucio-agent.js';
+import { gerarRespostaInbound, pareceVazamentoInterno } from './lucio-agent.js';
 import { avaliarQualificacao } from './qualifier.js';
 import { classificarSqlSeAplicavel, normalizarLabelsSqlSeNecessario } from './sql-classifier.js';
 import {
@@ -105,6 +108,52 @@ app.get('/api/cadencias', exigirAuth, async (req, res) => {
   try {
     const lista = await listarCadenciasParaSeletor();
     res.json({ ok: true, cadencias: lista });
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+app.get('/api/mensagens', exigirAuth, async (req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  const cadenciaId = req.query.cadencia ? parseInt(req.query.cadencia, 10) : null;
+  const limit = Math.min(parseInt(req.query.limit || '100', 10), 300);
+  const desde = (() => {
+    const p = req.query.periodo || '7d';
+    const agora = Date.now();
+    const dias = { hoje: null, '7d': 7, '30d': 30, '3m': 90, '6m': 180 }[p];
+    if (p === 'hoje') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
+    return dias ? new Date(agora - dias * 86400_000).toISOString() : null;
+  })();
+  try {
+    const mensagens = await listarMensagensEnviadas({ desde, cadenciaId, limit });
+    res.json({ ok: true, mensagens });
+  } catch (err) {
+    console.error('[bridge] erro /api/mensagens:', err);
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+// Estado global do envio outbound: ler e alterar (pausar/retomar/encerrar).
+app.get('/api/outbound-estado', exigirAuth, async (_req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const e = await getOutboundEstado();
+    res.json({ ok: true, ...e });
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+app.post('/api/outbound-estado', exigirAuth, async (req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  const acao = req.body?.acao;
+  const mapa = { pausar: 'pausado', retomar: 'ativo', encerrar: 'encerrado' };
+  const estado = mapa[acao];
+  if (!estado) return res.status(400).json({ ok: false, erro: 'acao inválida (pausar|retomar|encerrar)' });
+  try {
+    const e = await setOutboundEstado(estado, 'dashboard');
+    console.log(`[bridge] outbound ${acao} → estado=${estado} (via dashboard)`);
+    res.json({ ok: true, ...e });
   } catch (err) {
     res.status(500).json({ ok: false, erro: err.message });
   }
@@ -301,6 +350,15 @@ async function processarBatch(items) {
     return;
   }
 
+  // Rede de segurança: nunca deixar narração de estado interno chegar ao lead.
+  if (pareceVazamentoInterno(resposta)) {
+    console.error(`[bridge] BLOQUEADO: resposta parece estado interno, NÃO enviada ao lead=${lead?.id} telefone=${telefone} :: "${resposta.slice(0, 200)}"`);
+    if (supabaseEnabled() && lead) {
+      try { await registrarEvento(lead.id, 'resposta_bloqueada_vazamento', { trecho: resposta.slice(0, 300) }); } catch (e) { /* não falha o fluxo */ }
+    }
+    return;
+  }
+
   if (N8N_OUT_WEBHOOK_URL) {
     // Registra ANTES de enviar pra cobrir webhook que volta antes da response.
     registrarOutboundDoBridge({ telefone, conteudo: resposta });
@@ -369,6 +427,18 @@ async function processarBatch(items) {
 const N8N_OUTBOUND_WEBHOOK_URL = process.env.N8N_OUTBOUND_WEBHOOK_URL;
 
 async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
+  // Controle global do dashboard: pausado/encerrado bloqueia o envio.
+  // Não cancela agendamentos — só não dispara enquanto estiver fora de 'ativo'.
+  try {
+    const { estado } = await getOutboundEstado();
+    if (estado !== 'ativo') {
+      console.log(`[bridge] outbound-batch ignorado (estado=${estado})`);
+      return { total: 0, resultados: [], pausado: estado };
+    }
+  } catch (err) {
+    console.error('[bridge] erro lendo estado outbound (segue como ativo):', err.message);
+  }
+
   const pendentes = await puxarPendentes(limite);
   console.log(`[bridge] outbound-batch puxou ${pendentes.length} pendentes (dryRun=${dryRun})`);
   const resultados = [];
