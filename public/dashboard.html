@@ -345,6 +345,53 @@
     border-radius: 12px;
   }
 
+  /* ── Painel de controle do envio ───────────────────────── */
+  .controle {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .controle-estado { display: flex; align-items: center; gap: 12px; }
+  .estado-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; letter-spacing: -0.005em;
+    border: 1px solid var(--border);
+  }
+  .estado-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .estado-badge.ativo     { color: var(--green);  background: rgba(74,222,128,0.10);  border-color: rgba(74,222,128,0.30); }
+  .estado-badge.ativo .dot { box-shadow: 0 0 0 3px rgba(74,222,128,0.18); animation: pulse 2s ease-in-out infinite; }
+  .estado-badge.pausado   { color: var(--amber);  background: rgba(251,191,36,0.10);  border-color: rgba(251,191,36,0.30); }
+  .estado-badge.encerrado { color: var(--red);    background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
+  .estado-meta { font-size: 12px; color: var(--muted); }
+  .controle-botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn-acao {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 16px; border-radius: 10px; cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    border: 1px solid var(--border-hi); background: var(--panel); color: var(--text);
+    transition: all 0.18s ease;
+  }
+  .btn-acao svg { width: 14px; height: 14px; }
+  .btn-acao:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.2); }
+  .btn-acao:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .btn-acao.retomar { color: var(--green);  background: rgba(74,222,128,0.10);  border-color: rgba(74,222,128,0.30); }
+  .btn-acao.pausar  { color: var(--amber);  background: rgba(251,191,36,0.10);  border-color: rgba(251,191,36,0.30); }
+  .btn-acao.encerrar{ color: var(--red);    background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
+
+  /* ── Tabela de mensagens enviadas ──────────────────────── */
+  .msg-texto {
+    color: var(--text-2); font-size: 12.5px; line-height: 1.45;
+    max-width: 520px; white-space: pre-wrap; word-break: break-word;
+  }
+  .autor-badge {
+    font-size: 10px; padding: 2px 7px; border-radius: 4px;
+    border: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+  .autor-badge.ia     { color: var(--blue);   background: rgba(78,161,255,0.08);  border-color: rgba(78,161,255,0.2); }
+  .autor-badge.humano { color: var(--violet); background: rgba(167,139,250,0.10); border-color: rgba(167,139,250,0.25); }
+  .passo-tag { font-size: 11px; color: var(--muted); }
+
   /* ── Scrollbar refinado ────────────────────────────────── */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -402,6 +449,20 @@
 </div>
 
 <main>
+  <div class="secao">
+    <div class="secao-head">
+      <h2><span class="accent"></span>Envio outbound</h2>
+      <span class="hint">controle da campanha de cadência</span>
+    </div>
+    <div class="controle">
+      <div class="controle-estado">
+        <span id="estado-badge" class="estado-badge"><span class="dot"></span><span id="estado-texto">carregando…</span></span>
+        <span id="estado-meta" class="estado-meta"></span>
+      </div>
+      <div class="controle-botoes" id="controle-botoes"></div>
+    </div>
+  </div>
+
   <div id="kpis" class="kpis"></div>
 
   <div class="secao">
@@ -433,6 +494,29 @@
         <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
       </svg>
       <div>Sem leads nesta janela.</div>
+    </div>
+  </div>
+
+  <div class="secao">
+    <div class="secao-head">
+      <h2><span class="accent"></span>Mensagens enviadas</h2>
+      <span class="hint">toques do Lúcio + closer · mais recentes primeiro</span>
+    </div>
+    <div class="tabela-wrap">
+      <table id="tabela-msgs">
+        <thead>
+          <tr>
+            <th>Quando</th><th>Lead</th><th>Autor</th><th>Mensagem</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="vazio-msgs" class="vazio" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <div>Nenhuma mensagem enviada nesta janela.</div>
     </div>
   </div>
 </main>
@@ -476,7 +560,99 @@ const ICONS = {
   trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55.47.98.97 1.21C12.15 18.75 13 20.24 13 22"/><path d="M14 14.66V17c0 .55-.47.98-.97 1.21C11.85 18.75 11 20.24 11 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>',
   x:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
   arrowUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>',
+  play:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
+  stop:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
 };
+
+const ESTADO_LABEL = { ativo: 'Enviando', pausado: 'Pausado', encerrado: 'Encerrado' };
+
+async function carregarEstadoOutbound() {
+  try {
+    const r = await fetch(api('/api/outbound-estado'), fetchOpts);
+    const j = await r.json();
+    if (j.ok) renderEstadoOutbound(j);
+  } catch (e) { console.error(e); }
+}
+
+function renderEstadoOutbound({ estado, atualizado_em, atualizado_por }) {
+  estado = estado || 'ativo';
+  const badge = document.getElementById('estado-badge');
+  badge.className = 'estado-badge ' + estado;
+  document.getElementById('estado-texto').textContent = ESTADO_LABEL[estado] || estado;
+  document.getElementById('estado-meta').textContent = atualizado_em
+    ? `desde ${formatarData(atualizado_em)}${atualizado_por ? ' · ' + atualizado_por : ''}` : '';
+
+  // Botões conforme o estado atual.
+  const botoes = [];
+  if (estado === 'ativo') {
+    botoes.push({ acao: 'pausar', cls: 'pausar', icon: ICONS.pause, txt: 'Pausar envio' });
+    botoes.push({ acao: 'encerrar', cls: 'encerrar', icon: ICONS.stop, txt: 'Encerrar' });
+  } else if (estado === 'pausado') {
+    botoes.push({ acao: 'retomar', cls: 'retomar', icon: ICONS.play, txt: 'Retomar envio' });
+    botoes.push({ acao: 'encerrar', cls: 'encerrar', icon: ICONS.stop, txt: 'Encerrar' });
+  } else { // encerrado
+    botoes.push({ acao: 'retomar', cls: 'retomar', icon: ICONS.play, txt: 'Reativar campanha' });
+  }
+  document.getElementById('controle-botoes').innerHTML = botoes.map(b =>
+    `<button class="btn-acao ${b.cls}" data-acao="${b.acao}">${b.icon}${b.txt}</button>`
+  ).join('');
+}
+
+async function acaoOutbound(acao) {
+  const confirmacoes = {
+    encerrar: 'Encerrar a campanha? O envio para por completo. Os agendamentos ficam intactos — dá pra reativar depois.',
+  };
+  if (confirmacoes[acao] && !confirm(confirmacoes[acao])) return;
+  document.querySelectorAll('#controle-botoes button').forEach(b => b.disabled = true);
+  try {
+    const r = await fetch(api('/api/outbound-estado'), {
+      ...fetchOpts, method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao }),
+    });
+    const j = await r.json();
+    if (j.ok) renderEstadoOutbound(j);
+    else { alert('Erro: ' + (j.erro || 'desconhecido')); carregarEstadoOutbound(); }
+  } catch (e) {
+    alert('Falha de rede: ' + e.message); carregarEstadoOutbound();
+  }
+}
+
+document.getElementById('controle-botoes').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-acao]');
+  if (btn) acaoOutbound(btn.dataset.acao);
+});
+
+async function carregarMensagens() {
+  try {
+    const qs = `?periodo=${periodoAtual}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
+    const r = await fetch(api('/api/mensagens' + qs), fetchOpts);
+    const j = await r.json();
+    if (j.ok) renderMensagens(j.mensagens || []);
+  } catch (e) { console.error(e); }
+}
+
+function renderMensagens(msgs) {
+  const tbody = document.querySelector('#tabela-msgs tbody');
+  document.getElementById('vazio-msgs').style.display = msgs.length ? 'none' : 'block';
+  document.querySelector('#tabela-msgs').style.display = msgs.length ? '' : 'none';
+  tbody.innerHTML = msgs.map(m => {
+    const autor = m.autor === 'humano' ? 'humano' : 'ia';
+    const autorTxt = m.autor === 'humano' ? 'Closer' : 'Lúcio';
+    const passo = m.passo ? `<span class="passo-tag">toque ${m.passo}</span>` : '';
+    return `<tr>
+      <td class="mono tempo-cell" style="white-space:nowrap">${formatarData(m.enviada_em)}</td>
+      <td>
+        <div class="nome">${escapeHtml(m.nome || '—')}</div>
+        ${m.empresa ? `<div class="empresa">${escapeHtml(m.empresa)}</div>` : ''}
+        <div class="telefone mono">${escapeHtml(m.telefone)}</div>
+      </td>
+      <td><span class="autor-badge ${autor}">${autorTxt}</span>${passo ? '<br>' + passo : ''}</td>
+      <td><div class="msg-texto">${escapeHtml(m.texto)}</div></td>
+    </tr>`;
+  }).join('');
+}
 
 async function carregarCadencias() {
   try {
@@ -505,6 +681,8 @@ async function carregar() {
     }
     renderizar(j);
     document.getElementById('last-update').textContent = new Date(j.geradoEm).toLocaleTimeString('pt-BR');
+    carregarEstadoOutbound();
+    carregarMensagens();
   } catch (e) {
     console.error(e);
     document.getElementById('kpis').innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
