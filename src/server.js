@@ -29,6 +29,7 @@ import {
   registrarOutboundDoBridge,
   jaEnviadoPeloBridge,
 } from './chatwoot-client.js';
+import { crmEnabled } from './crm-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
 import { revisarHandoffsAbandonados } from './watchdog.js';
 import {
@@ -165,6 +166,7 @@ app.get('/health', (_req, res) => {
     bridge: 'lucio',
     supabase: supabaseEnabled(),
     chatwoot: chatwootEnabled(),
+    crm: crmEnabled(),
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
     model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
     timestamp: new Date().toISOString(),
@@ -844,5 +846,5 @@ app.post('/handoff-return', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[lucio-bridge] escutando em http://localhost:${PORT}`);
-  console.log(`  supabase=${supabaseEnabled()} chatwoot=${chatwootEnabled()} n8n_out=${!!N8N_OUT_WEBHOOK_URL} buffer=${bufferEnabled() ? bufferSeconds()+'s' : 'off'}`);
+  console.log(`  supabase=${supabaseEnabled()} chatwoot=${chatwootEnabled()} crm=${crmEnabled()} n8n_out=${!!N8N_OUT_WEBHOOK_URL} buffer=${bufferEnabled() ? bufferSeconds()+'s' : 'off'}`);
 });
