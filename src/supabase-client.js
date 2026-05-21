@@ -264,10 +264,34 @@ export async function marcarHandoff(lead_id, payload = {}) {
   return atualizarLead(lead_id, { status: 'handoff', modo: 'mudo' });
 }
 
+// Etapas que indicam que o lead já engajou (respondeu) em algum momento.
+// Usadas pra decidir pra onde a devolução pro bot leva a etapa atual.
+const ETAPAS_ENGAJADO = [
+  'mql-respondeu', 'mql-qualificado', 'humano-atendendo',
+  'sql-contato-feito', 'sql-proposta', 'sql-negociacao', 'sql-ganho',
+];
+
 export async function devolverPraBot(lead_id) {
   ensure();
   await registrarEvento(lead_id, 'devolvido_bot', {});
-  await registrarTransicao(lead_id, null, 'em-cadencia', 'manual', { motivo: 'devolver-lucio' }).catch(() => {});
+
+  // Se o lead já tinha respondido/engajado antes, devolver pro Lúcio NÃO deve
+  // regredir a etapa pra 'em-cadencia' (lead frio). Volta pra 'mql-respondeu'
+  // (engajado, bot reassume). Só cai em 'em-cadencia' se nunca passou disso.
+  let destino = 'em-cadencia';
+  try {
+    const { data } = await supabase
+      .from('transicoes_pipeline')
+      .select('etapa_para')
+      .eq('lead_id', lead_id)
+      .in('etapa_para', ETAPAS_ENGAJADO)
+      .limit(1);
+    if (data?.length) destino = 'mql-respondeu';
+  } catch (err) {
+    console.error('[supabase] erro checando engajamento na devolução:', err.message);
+  }
+
+  await registrarTransicao(lead_id, null, destino, 'manual', { motivo: 'devolver-lucio' }).catch(() => {});
   return atualizarLead(lead_id, { modo: 'bot' });
 }
 
