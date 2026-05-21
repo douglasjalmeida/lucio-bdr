@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { espelharTransicao } from './crm-client.js';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -116,10 +117,11 @@ export async function registrarTransicao(lead_id, etapa_de, etapa_para, origem =
     .maybeSingle();
   if (ultima?.etapa_para === etapa_para) return { skipped: 'mesma-etapa' };
 
-  // Busca cadencia_id do lead pra desnormalizar (facilita filtro no dashboard).
+  // Busca cadencia_id + dados do lead. cadencia_id desnormaliza pro dashboard;
+  // telefone/nome/empresa + crm_lead_id/crm_deal_id alimentam o espelho no CRM.
   const { data: leadRow } = await supabase
     .from('leads')
-    .select('cadencia_id')
+    .select('cadencia_id, telefone, nome, empresa, crm_lead_id, crm_deal_id')
     .eq('id', lead_id)
     .maybeSingle();
 
@@ -132,6 +134,22 @@ export async function registrarTransicao(lead_id, etapa_de, etapa_para, origem =
     payload_json,
   });
   if (error) throw error;
+
+  // Espelha a transição no CRM externo (funis Marketing/Vendas). Best-effort:
+  // off se CRM não configurado; erro nunca quebra o registro da transição.
+  // Quando o espelho descobre/cria o id do card, persiste de volta no lead
+  // (crm_lead_id/crm_deal_id) pra próxima transição mover por id (idempotência).
+  if (leadRow) {
+    espelharTransicao(leadRow, etapa_para)
+      .then(patch => {
+        if (patch && (patch.crm_lead_id || patch.crm_deal_id)) {
+          return supabase.from('leads').update(patch).eq('id', lead_id);
+        }
+      })
+      .catch(e =>
+        console.warn(`[crm] espelho falhou (lead ${lead_id} → ${etapa_para}):`, e.message)
+      );
+  }
   return { ok: true };
 }
 
