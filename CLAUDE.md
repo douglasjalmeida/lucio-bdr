@@ -87,7 +87,11 @@ Credenciais n8n Luminus: Douglas fornece, salvar em `.env` local (não versionar
 ## Estrutura de pastas
 
 - `.claude/identidade-lucio.md` — firmware portátil (voz/princípios)
-- `.claude/agents/` — sub-agentes operacionais (a definir)
+- `.claude/agents/` — sub-agentes **de dev** (Modo Dev, invocados no IDE — não confundir com os agentes de runtime qualifier/sql-classifier que rodam no bridge):
+  - `lucio-reviewer` — revisa diff contra as 7 invariantes inegociáveis (rede de segurança, já que não há teste automatizado)
+  - `lucio-diagnostician` — investiga runtime ("por que o lead X não recebeu toque / não avançou?") cruzando Supabase + Chatwoot + uazapi
+  - `lucio-planner` — vira pedido em PRD + issues acionáveis (cria `gh issue` só após aprovação)
+  - `lucio-ops` — implantação na VPS, manutenção, transporte novo (Telegram) e diagnóstico de incidente
 - `.claude/skills/` — skills úteis pro Lúcio (n8n-architect, mcp-builder, etc — copiadas do Cláudio quando precisar)
 - `src/` — bridge Node + Express + Claude Agent SDK
 - `prompts/` — prompt-base do Lúcio + sub-agents (qualificação, handoff, etc)
