@@ -227,22 +227,33 @@ export async function adicionarNotaCard(lead, texto) {
   if (!enabled) return null;
   if (!texto || !lead) return null;
 
-  const funil = lead.crm_deal_id ? 'sales' : (lead.crm_lead_id ? 'marketing' : null);
-  if (!funil) return null;
-  const recurso = funil === 'sales' ? 'deals' : 'leads';
-  const id = funil === 'sales' ? lead.crm_deal_id : lead.crm_lead_id;
+  // O lead vive em até dois funis ao mesmo tempo (Marketing como MQL + Vendas
+  // como negócio). A nota vai pra TODOS os cards que existem, pra ser encontrável
+  // em qualquer funil que o usuário abrir — não só no "mais avançado".
+  const alvos = [];
+  if (lead.crm_lead_id) alvos.push({ funil: 'marketing', recurso: 'leads', id: lead.crm_lead_id });
+  if (lead.crm_deal_id) alvos.push({ funil: 'sales', recurso: 'deals', id: lead.crm_deal_id });
+  if (!alvos.length) return null;
 
-  // read-modify-write não-atômico: como o espelho é best-effort e fire-and-forget,
-  // duas notas quase-simultâneas pro mesmo lead podem perder uma. Aceitável aqui
-  // (notas do Lúcio pro mesmo lead são raras e sequenciais, não concorrentes).
-  const atual = await call('GET', funil, `${recurso}/${id}/`);
-  const anterior = (atual?.notes || '').trim();
   const entrada = `— [${carimboBR()}] ${texto}`;
-  let novo = anterior ? `${anterior}\n\n${entrada}` : entrada;
-  if (novo.length > NOTES_MAX_CHARS) novo = novo.slice(-NOTES_MAX_CHARS);
-
-  await call('PATCH', funil, `${recurso}/${id}/`, { notes: novo });
-  return { funil, id };
+  const escritos = [];
+  for (const a of alvos) {
+    try {
+      // read-modify-write não-atômico: como o espelho é best-effort e fire-and-
+      // forget, duas notas quase-simultâneas pro mesmo card podem perder uma.
+      // Aceitável (notas do Lúcio pro mesmo lead são raras e sequenciais).
+      const atual = await call('GET', a.funil, `${a.recurso}/${a.id}/`);
+      const anterior = (atual?.notes || '').trim();
+      let novo = anterior ? `${anterior}\n\n${entrada}` : entrada;
+      if (novo.length > NOTES_MAX_CHARS) novo = novo.slice(-NOTES_MAX_CHARS);
+      await call('PATCH', a.funil, `${a.recurso}/${a.id}/`, { notes: novo });
+      escritos.push(a);
+    } catch (e) {
+      // best-effort por card: falha num funil não impede o outro
+      console.warn(`[crm] nota falhou em ${a.funil}/${a.id}:`, e.message);
+    }
+  }
+  return escritos.length ? escritos : null;
 }
 
 // ─────────────────────────────────────────────────────────────
