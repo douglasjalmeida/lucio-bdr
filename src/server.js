@@ -168,6 +168,7 @@ app.get('/health', (_req, res) => {
     supabase: supabaseEnabled(),
     chatwoot: chatwootEnabled(),
     crm: crmEnabled(),
+    build: 'notas-2-funis',
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
     model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
     timestamp: new Date().toISOString(),
