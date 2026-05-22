@@ -3,7 +3,7 @@
 // e notifica Douglas/closer via webhook n8n (opcional).
 
 import {
-  marcarLeadQualificado, marcarHandoff, atualizarLead,
+  marcarLeadQualificado, marcarHandoff, atualizarLead, espelharNotaNoCrm,
 } from './supabase-client.js';
 import {
   chatwootEnabled, aplicarLabelsAditivo, removerLabels,
@@ -81,7 +81,10 @@ export async function executarHandoff({ lead, qualificacao, chatwootCtx }) {
     try {
       await removerLabels(chatwootCtx.conversationId, ['mql-em-cadencia', 'mql-respondeu']);
       await aplicarLabelsAditivo(chatwootCtx.conversationId, ['mql-qualificado']);
-      await addNotaPrivada(chatwootCtx.conversationId, montarNotaPrivada({ lead, qualificacao }));
+      const notaHandoff = montarNotaPrivada({ lead, qualificacao });
+      await addNotaPrivada(chatwootCtx.conversationId, notaHandoff);
+      espelharNotaNoCrm(lead.id, notaHandoff)
+        .catch(e => console.warn('[handoff] espelho nota CRM falhou:', e.message));
       if (TEAM_ID) await atribuirTeam(chatwootCtx.conversationId, TEAM_ID);
       if (chatwootCtx.contactId) {
         await atualizarAtributosContato(chatwootCtx.contactId, {

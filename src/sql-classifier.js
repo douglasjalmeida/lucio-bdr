@@ -13,7 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   chatwootEnabled, aplicarLabelsAditivo, removerLabels, addNotaPrivada,
 } from './chatwoot-client.js';
-import { ultimasMensagensDoLead, registrarEvento, registrarTransicao } from './supabase-client.js';
+import { ultimasMensagensDoLead, registrarEvento, registrarTransicao, espelharNotaNoCrm } from './supabase-client.js';
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODEL = process.env.LUCIO_SQL_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001';
@@ -152,7 +152,7 @@ async function labelsAtuais(conversationId) {
 }
 
 // Aplica a transição: remove labels SQL anteriores, aplica a nova, escreve nota privada.
-async function aplicarTransicao({ conversationId, labelAtual, labelNova, gatilho, confianca }) {
+async function aplicarTransicao({ conversationId, leadId = null, labelAtual, labelNova, gatilho, confianca }) {
   const aRemover = SQL_LABELS.filter(l => l !== labelNova && l !== labelAtual);
   // Se labelAtual existe e é diferente da nova, também remove
   if (labelAtual && labelAtual !== labelNova) aRemover.push(labelAtual);
@@ -173,6 +173,11 @@ async function aplicarTransicao({ conversationId, labelAtual, labelNova, gatilho
   ].join('\n');
   try { await addNotaPrivada(conversationId, nota); }
   catch (err) { console.error('[sql-classifier] erro escrevendo nota:', err.message); }
+
+  if (leadId) {
+    espelharNotaNoCrm(leadId, nota)
+      .catch(e => console.warn('[sql-classifier] espelho nota CRM falhou:', e.message));
+  }
 }
 
 // Normaliza labels SQL: dado que a conv tem N labels sql-* aplicadas, mantém só
@@ -274,7 +279,7 @@ export async function classificarSqlSeAplicavel({ lead, conversationId }) {
   }
 
   await aplicarTransicao({
-    conversationId, labelAtual, labelNova: novaLabel,
+    conversationId, leadId: lead.id, labelAtual, labelNova: novaLabel,
     gatilho: cls.gatilho, confianca: cls.confianca,
   });
 

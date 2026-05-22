@@ -207,6 +207,45 @@ export async function removerLead(id) { return call('DELETE', 'marketing', `lead
 export async function removerNegocio(id) { return call('DELETE', 'sales', `deals/${id}/`); }
 
 // ─────────────────────────────────────────────────────────────
+// Notas — espelha no card CRM as notas privadas que o Lúcio cria no Chatwoot.
+// O CRM tem UM campo `notes` por card (não um log multi-entrada), então
+// acumulamos: lê o notes atual, anexa a nova entrada com carimbo de data/hora.
+// A nota vai pro card mais avançado que existe (negócio se houver, senão lead).
+// No-op se o lead não tem card no CRM — nota não cria card do zero.
+// ─────────────────────────────────────────────────────────────
+function carimboBR() {
+  return new Date().toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Teto do campo acumulado: mantém as entradas mais recentes (corta o começo).
+const NOTES_MAX_CHARS = 8000;
+
+export async function adicionarNotaCard(lead, texto) {
+  if (!enabled) return null;
+  if (!texto || !lead) return null;
+
+  const funil = lead.crm_deal_id ? 'sales' : (lead.crm_lead_id ? 'marketing' : null);
+  if (!funil) return null;
+  const recurso = funil === 'sales' ? 'deals' : 'leads';
+  const id = funil === 'sales' ? lead.crm_deal_id : lead.crm_lead_id;
+
+  // read-modify-write não-atômico: como o espelho é best-effort e fire-and-forget,
+  // duas notas quase-simultâneas pro mesmo lead podem perder uma. Aceitável aqui
+  // (notas do Lúcio pro mesmo lead são raras e sequenciais, não concorrentes).
+  const atual = await call('GET', funil, `${recurso}/${id}/`);
+  const anterior = (atual?.notes || '').trim();
+  const entrada = `— [${carimboBR()}] ${texto}`;
+  let novo = anterior ? `${anterior}\n\n${entrada}` : entrada;
+  if (novo.length > NOTES_MAX_CHARS) novo = novo.slice(-NOTES_MAX_CHARS);
+
+  await call('PATCH', funil, `${recurso}/${id}/`, { notes: novo });
+  return { funil, id };
+}
+
+// ─────────────────────────────────────────────────────────────
 // Entrada principal — chamada (fire-and-forget) por registrarTransicao.
 // `lead` = { telefone, nome, empresa, crm_lead_id, crm_deal_id }.
 // Retorna patch de persistência ({ crm_lead_id }|{ crm_deal_id }) ou null.

@@ -10,6 +10,7 @@
 
 import {
   supabase, supabaseEnabled, devolverPraBot, gravarMensagem, registrarEvento,
+  espelharNotaNoCrm,
 } from './supabase-client.js';
 import {
   chatwootEnabled, garantirLeadNoChatwoot, espelharMensagemConversa,
@@ -97,10 +98,10 @@ export async function revisarHandoffsAbandonados() {
             customAttrs: { empresa: lead.empresa || '' },
           });
           if (cw?.conversationId) {
-            await addNotaPrivada(
-              cw.conversationId,
-              `⏰ Lúcio retomou automaticamente — humano sem resposta há ${Math.round(idadeMin)}min.`,
-            );
+            const notaWatchdog = `⏰ Lúcio retomou automaticamente — humano sem resposta há ${Math.round(idadeMin)}min.`;
+            await addNotaPrivada(cw.conversationId, notaWatchdog);
+            espelharNotaNoCrm(lead.id, notaWatchdog)
+              .catch(e => console.warn('[watchdog] espelho nota CRM falhou:', e.message));
             await espelharMensagemConversa({
               conversationId: cw.conversationId, content: resposta, direction: 'out',
             });

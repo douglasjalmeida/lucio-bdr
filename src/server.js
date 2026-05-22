@@ -12,6 +12,7 @@ import {
   getOutboundEstado,
   setOutboundEstado,
   listarMensagensEnviadas,
+  espelharNotaNoCrm,
 } from './supabase-client.js';
 import { deveResponder, executarHandoff } from './handoff.js';
 import { gerarRespostaInbound, pareceVazamentoInterno } from './lucio-agent.js';
@@ -644,6 +645,8 @@ app.post('/chatwoot-webhook', express.json({
               await removerLabels(convId, ['devolver-lucio', 'humano-atendendo', 'mql-qualificado']);
               await aplicarLabelsAditivo(convId, ['mql-em-cadencia']);
               await addNotaPrivada(convId, nota);
+              espelharNotaNoCrm(lead.id, nota)
+                .catch(e => console.warn('[bridge] espelho nota CRM (devolução) falhou:', e.message));
             }
           } catch (err) { console.error('[bridge] erro escrevendo feedback de devolução:', err.message); }
         } catch (err) {

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { espelharTransicao } from './crm-client.js';
+import { espelharTransicao, adicionarNotaCard } from './crm-client.js';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -151,6 +151,23 @@ export async function registrarTransicao(lead_id, etapa_de, etapa_para, origem =
       );
   }
   return { ok: true };
+}
+
+// Espelha no card CRM uma nota privada que o Lúcio escreveu no Chatwoot.
+// Resolve os ids do card a partir do lead (mesma arquitetura do espelho de
+// transição: crm-client não importa supabase, recebe os dados por parâmetro).
+// Best-effort — o caller chama fire-and-forget; off se CRM não configurado ou
+// lead sem card.
+export async function espelharNotaNoCrm(lead_id, texto) {
+  ensure();
+  if (!lead_id || !texto) return null;
+  const { data: leadRow } = await supabase
+    .from('leads')
+    .select('telefone, nome, crm_lead_id, crm_deal_id')
+    .eq('id', lead_id)
+    .maybeSingle();
+  if (!leadRow) return null;
+  return adicionarNotaCard(leadRow, texto);
 }
 
 // Query de transições por janela. Retorna agregados por etapa pra KPI cards.
