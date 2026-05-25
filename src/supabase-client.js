@@ -247,6 +247,33 @@ export async function setOutboundEstado(estado, atualizado_por = 'dashboard') {
   return { estado: data.valor, atualizado_em: data.atualizado_em, atualizado_por: data.atualizado_por };
 }
 
+// ─── Round-robin de closers no handoff (config_bridge) ───────────────────────
+
+// Distribui handoffs entre os closers (CHATWOOT_CLOSER_IDS) de forma alternada.
+// Mantém um índice incremental persistido em config_bridge (sobrevive a restart).
+// Cada chamada avança 1 e devolve o próximo closer da lista (módulo tamanho).
+// Se a lista mudar de tamanho, o módulo na leitura mantém o índice válido.
+export async function proximoCloserRR(closerIds) {
+  ensure();
+  if (!Array.isArray(closerIds) || closerIds.length === 0) return null;
+  const { data, error } = await supabase
+    .from('config_bridge')
+    .select('valor')
+    .eq('chave', 'handoff_rr_idx')
+    .maybeSingle();
+  if (error) throw error;
+  const atual = (parseInt(data?.valor, 10) || 0) % closerIds.length;
+  const escolhido = closerIds[atual];
+  const proximo = (atual + 1) % closerIds.length;
+  await supabase
+    .from('config_bridge')
+    .upsert(
+      { chave: 'handoff_rr_idx', valor: String(proximo), atualizado_em: new Date().toISOString(), atualizado_por: 'handoff' },
+      { onConflict: 'chave' },
+    );
+  return escolhido;
+}
+
 // ─── Mensagens enviadas (pro dashboard) ──────────────────────────────────────
 
 // Lista mensagens que saíram pro lead (direcao='out'): toques outbound da IA,

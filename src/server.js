@@ -29,6 +29,8 @@ import {
   addNotaPrivada,
   registrarOutboundDoBridge,
   jaEnviadoPeloBridge,
+  atribuirAgente,
+  CLOSER_MAP,
 } from './chatwoot-client.js';
 import { crmEnabled } from './crm-client.js';
 import { enfileirarMensagem, bufferSeconds, bufferEnabled } from './buffer.js';
@@ -655,6 +657,23 @@ app.post('/chatwoot-webhook', express.json({
           try { if (convId) await addNotaPrivada(convId, `⚠️ Falha ao devolver pro Lúcio: ${err.message}`); } catch {}
         }
         return;
+      }
+
+      // Caso C: closer reivindica o lead pra si via etiqueta (gerson/viviane).
+      // Aplicou a label do próprio nome → atribui a conversa àquele agent.
+      // Não silencia o Lúcio aqui (decisão: label manual não muta); o modo mudo
+      // entra quando o closer mandar a 1ª mensagem, como já acontece hoje.
+      if (Array.isArray(labels) && convId) {
+        const labelCloser = labels.find(l => CLOSER_MAP[String(l).toLowerCase()]);
+        if (labelCloser) {
+          const agentId = CLOSER_MAP[String(labelCloser).toLowerCase()];
+          try {
+            await atribuirAgente(convId, agentId);
+            console.log(`[bridge] etiqueta '${labelCloser}' → conversa ${convId} atribuída ao agent ${agentId}`);
+          } catch (err) {
+            console.error(`[bridge] erro atribuindo agent por etiqueta '${labelCloser}':`, err.message);
+          }
+        }
       }
 
       // Caso B: aplicação manual de label SQL pelo closer. Dois sub-casos:

@@ -3,11 +3,12 @@
 // e notifica Douglas/closer via webhook n8n (opcional).
 
 import {
-  marcarLeadQualificado, marcarHandoff, atualizarLead, espelharNotaNoCrm,
+  marcarLeadQualificado, marcarHandoff, atualizarLead, espelharNotaNoCrm, proximoCloserRR,
 } from './supabase-client.js';
 import {
   chatwootEnabled, aplicarLabelsAditivo, removerLabels,
-  addNotaPrivada, atribuirTeam, atualizarAtributosContato,
+  addNotaPrivada, atribuirTeam, atribuirAgente, atualizarAtributosContato,
+  CLOSER_IDS,
 } from './chatwoot-client.js';
 
 const TEAM_ID = parseInt(process.env.CHATWOOT_CLOSERS_TEAM_ID || '0', 10) || null;
@@ -86,6 +87,16 @@ export async function executarHandoff({ lead, qualificacao, chatwootCtx }) {
       espelharNotaNoCrm(lead.id, notaHandoff)
         .catch(e => console.warn('[handoff] espelho nota CRM falhou:', e.message));
       if (TEAM_ID) await atribuirTeam(chatwootCtx.conversationId, TEAM_ID);
+      // Round-robin: alterna o handoff entre os closers de CHATWOOT_CLOSER_IDS.
+      if (CLOSER_IDS.length) {
+        try {
+          const closerId = await proximoCloserRR(CLOSER_IDS);
+          if (closerId) await atribuirAgente(chatwootCtx.conversationId, closerId);
+          resultado.closer_id = closerId;
+        } catch (err) {
+          console.error('[handoff] round-robin closer falhou:', err.message);
+        }
+      }
       if (chatwootCtx.contactId) {
         await atualizarAtributosContato(chatwootCtx.contactId, {
           dor_identificada: qualificacao.dor_identificada || '',

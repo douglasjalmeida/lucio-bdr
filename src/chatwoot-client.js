@@ -9,6 +9,18 @@ const INBOX_ID = parseInt(process.env.CHATWOOT_INBOX_ID || '0', 10) || null;
 
 const enabled = !!(BASE_URL && TOKEN && ACCOUNT_ID && INBOX_ID);
 
+// Mapa nome-da-label → agentId dos closers. Ex: CHATWOOT_CLOSER_MAP=gerson:12,viviane:17
+// Alimenta o round-robin do handoff (valores) e o override manual por etiqueta (chaves).
+export const CLOSER_MAP = Object.fromEntries(
+  (process.env.CHATWOOT_CLOSER_MAP || '')
+    .split(',')
+    .map(p => p.split(':').map(s => s.trim()))
+    .filter(([nome, id]) => nome && parseInt(id, 10))
+    .map(([nome, id]) => [nome.toLowerCase(), parseInt(id, 10)]),
+);
+export const CLOSER_IDS = Object.values(CLOSER_MAP);
+export const CLOSER_LABELS = Object.keys(CLOSER_MAP);
+
 export function chatwootEnabled() {
   return enabled;
 }
@@ -282,6 +294,11 @@ export async function removerLabels(conversationId, labelsRemover) {
 export async function atribuirTeam(conversationId, teamId) {
   if (!enabled || !conversationId || !teamId) return null;
   return call('POST', `/conversations/${conversationId}/assignments`, { team_id: teamId });
+}
+
+export async function atribuirAgente(conversationId, assigneeId) {
+  if (!enabled || !conversationId || !assigneeId) return null;
+  return call('POST', `/conversations/${conversationId}/assignments`, { assignee_id: assigneeId });
 }
 
 export async function atualizarAtributosContato(contactId, customAttrs) {
