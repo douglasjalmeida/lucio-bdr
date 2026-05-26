@@ -13,9 +13,10 @@ import {
   setOutboundEstado,
   listarMensagensEnviadas,
   espelharNotaNoCrm,
+  encerrarLead,
 } from './supabase-client.js';
 import { deveResponder, executarHandoff } from './handoff.js';
-import { gerarRespostaInbound, pareceVazamentoInterno } from './lucio-agent.js';
+import { gerarRespostaInbound, pareceVazamentoInterno, detectarSinalUra } from './lucio-agent.js';
 import { avaliarQualificacao } from './qualifier.js';
 import { classificarSqlSeAplicavel, normalizarLabelsSqlSeNecessario } from './sql-classifier.js';
 import {
@@ -170,7 +171,7 @@ app.get('/health', (_req, res) => {
     supabase: supabaseEnabled(),
     chatwoot: chatwootEnabled(),
     crm: crmEnabled(),
-    build: 'notas-2-funis',
+    build: 'ura-anota-nao-responde',
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
     model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
     timestamp: new Date().toISOString(),
@@ -310,6 +311,14 @@ async function processarBatch(items) {
     }
   }
 
+  // Número já identificado como central automática / URA: a mensagem fica
+  // registrada no Supabase (acima), mas o Lúcio não espelha, não chama o LLM e
+  // não responde — qualquer texto só realimentaria o loop do bot do outro lado.
+  if (lead?.status === 'encerrado' && lead?.motivo_encerramento === 'central_automatica') {
+    console.log(`[bridge] lead ${lead.id} é central automática — não responde telefone=${telefone}`);
+    return;
+  }
+
   let cwCtx = null;
   if (chatwootEnabled() && lead) {
     try {
@@ -353,6 +362,14 @@ async function processarBatch(items) {
 
   if (!resposta) {
     console.log(`[bridge] SDK retornou resposta vazia, telefone=${telefone}`);
+    return;
+  }
+
+  // Central automática / URA: o agente emitiu o token interno em vez de uma
+  // resposta de venda. NÃO envia nada pro WhatsApp — só anota e descarta.
+  const sinalUra = detectarSinalUra(resposta);
+  if (sinalUra.ura) {
+    await tratarCentralAutomatica({ lead, telefone, cwCtx, justificativa: sinalUra.justificativa, conteudoRecebido: mensagemAgrupada });
     return;
   }
 
@@ -421,6 +438,46 @@ async function processarBatch(items) {
     } catch (err) {
       console.error('[bridge] erro no qualifier:', err.message);
     }
+  }
+}
+
+// Número identificado como central automática / URA. Não envia NADA pro lead:
+// só registra a evidência (nota privada no Chatwoot + espelho no CRM), descarta
+// o número (encerra → corta cadência) e marca a etiqueta `mql-descartado`.
+async function tratarCentralAutomatica({ lead, telefone, cwCtx, justificativa, conteudoRecebido }) {
+  const evidencia = (justificativa || '').slice(0, 400) || '(sem detalhe)';
+  console.log(`[bridge] central automática detectada telefone=${telefone} lead=${lead?.id ?? '-'} :: ${evidencia}`);
+
+  if (supabaseEnabled() && lead?.id) {
+    try {
+      await registrarEvento(lead.id, 'central_automatica_detectada', {
+        telefone, evidencia, conteudo_recebido: (conteudoRecebido || '').slice(0, 500),
+      });
+    } catch (e) { console.error('[bridge] erro registrando evento central:', e.message); }
+    // Só encerra se ainda não estava encerrado por esse motivo (idempotente).
+    if (!(lead.status === 'encerrado' && lead.motivo_encerramento === 'central_automatica')) {
+      try {
+        await encerrarLead(lead.id, 'central_automatica');
+      } catch (e) { console.error('[bridge] erro encerrando lead central:', e.message); }
+    }
+  }
+
+  const nota = `🤖 *Número identificado como central automática / URA* — não é o contato de uma pessoa.\n`
+    + `Evidência: ${evidencia}\n`
+    + `O Lúcio NÃO respondeu (qualquer texto só realimentaria o bot do outro lado). `
+    + `Número descartado e cadência suspensa.\n`
+    + `Ação sugerida: buscar o contato direto por outra via (LinkedIn, site, indicação).`;
+
+  if (cwCtx?.conversationId) {
+    try {
+      await removerLabels(cwCtx.conversationId, ['mql-em-cadencia', 'mql-respondeu', 'mql-qualificado']);
+      await aplicarLabelsAditivo(cwCtx.conversationId, ['mql-descartado']);
+      await addNotaPrivada(cwCtx.conversationId, nota);
+    } catch (e) { console.error('[bridge] erro anotando central no Chatwoot:', e.message); }
+  }
+  if (supabaseEnabled() && lead?.id) {
+    espelharNotaNoCrm(lead.id, nota)
+      .catch(e => console.warn('[bridge] espelho nota CRM (central) falhou:', e.message));
   }
 }
 

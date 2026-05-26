@@ -51,6 +51,37 @@ sem revisão. Por isso:
 - Na dúvida entre narrar um processo interno ou dar uma resposta de venda: SEMPRE resposta de venda.
 `;
 
+// Token interno emitido pelo agente quando o "lead" é, na verdade, uma central
+// eletrônica / URA / bot. O bridge intercepta: NÃO envia nada pro WhatsApp,
+// registra nota e descarta o número. Nunca chega ao lead.
+const SINAL_URA = '[[CENTRAL-AUTOMATICA]]';
+
+const DETECCAO_URA = `
+
+# Quando o número é uma central automática / URA (CRÍTICO)
+
+Alguns números não são pessoas: são centrais eletrônicas — bots de CPF/CNPJ,
+URA de recepção, menus automáticos, autorresposta de horário de atendimento,
+pesquisa de satisfação ("informe uma nota de 0 a 10"), "você excedeu o número
+de tentativas", "digite 1 para...", "este número não recebe mensagens", etc.
+
+Sinais típicos de central automática (não pessoa):
+- O contato PEDE dados a VOCÊ (CPF, CNPJ, protocolo, número de opção do menu).
+- Respostas idênticas, robóticas, repetidas, sem nome próprio nem contexto da Luminus.
+- Mensagens de sistema/autorresposta, sem interlocutor humano real do outro lado.
+
+Se identificar com segurança que é central automática / URA (não uma pessoa):
+- NÃO responda nada ao número. Não siga o menu, não informe CPF/CNPJ, não venda,
+  não tente "encerrar com educação" — qualquer texto seu só realimenta o loop do bot.
+- Responda APENAS com o token abaixo, sozinho na primeira linha, e na linha seguinte
+  uma frase curta com a evidência:
+  ${SINAL_URA}
+  <evidência em uma linha — ex.: "Bot de CPF/CNPJ da Construtora Pride, não é o contato da pessoa">
+  Esse token é interno: o sistema intercepta, registra a nota e NÃO envia nada pro WhatsApp.
+- Na dúvida (pode ser uma pessoa, mesmo que confusa), NÃO use o token — responda
+  normalmente como Lúcio. O token é só pra casos claros de máquina/URA.
+`;
+
 // Marcadores de "estado interno" que JAMAIS podem ir pro lead. Rede de segurança:
 // se o modelo narrar operação interna apesar do prompt, o bridge bloqueia o envio.
 const MARCADORES_VAZAMENTO = [
@@ -70,6 +101,23 @@ export function pareceVazamentoInterno(texto) {
   return MARCADORES_VAZAMENTO.some(re => re.test(texto));
 }
 
+// Casa o token de central automática mesmo com variações (espaços, _/-, acento).
+const RE_SINAL_URA = /\[\[\s*CENTRAL[-_ ]?AUTOM[ÁA]TICA\s*\]\]/i;
+
+/**
+ * Detecta o sinal de central automática / URA emitido pelo agente.
+ * @param {string} texto - Resposta crua do SDK.
+ * @returns {{ura: boolean, justificativa: string}}
+ */
+export function detectarSinalUra(texto) {
+  if (!texto || !RE_SINAL_URA.test(texto)) return { ura: false, justificativa: '' };
+  const justificativa = texto
+    .replace(RE_SINAL_URA, '')
+    .replace(/^[\s:>*\-–—]+/, '')
+    .trim();
+  return { ura: true, justificativa };
+}
+
 /**
  * Roda o Claude Agent SDK pra gerar resposta inbound do Lúcio.
  *
@@ -80,7 +128,7 @@ export function pareceVazamentoInterno(texto) {
  * @returns {Promise<{resposta: string, sessionId: string|null, tokensIn: number|null, tokensOut: number|null}>}
  */
 export async function gerarRespostaInbound({ lead, historico, mensagemAtual }) {
-  const systemPrompt = SYSTEM_BASE + ESTILO_WHATSAPP;
+  const systemPrompt = SYSTEM_BASE + ESTILO_WHATSAPP + DETECCAO_URA;
 
   const contextoLead = `
 ## Lead atual
