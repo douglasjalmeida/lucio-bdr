@@ -40,6 +40,8 @@ import {
   puxarPendentes,
   formularToque,
   marcarEnviado,
+  incrementarTentativa,
+  marcarFalha,
   resetarCadenciaSeRespondeu,
 } from './cadence-engine.js';
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
@@ -173,7 +175,7 @@ app.get('/health', (_req, res) => {
     crm: crmEnabled(),
     build: 'ura-anota-nao-responde',
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
-    model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
+    model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
     timestamp: new Date().toISOString(),
   });
 });
@@ -488,6 +490,9 @@ async function tratarCentralAutomatica({ lead, telefone, cwCtx, justificativa, c
 // Body opcional: { limite, dryRun }
 // ──────────────────────────────────────────────────────────────────────────
 const N8N_OUTBOUND_WEBHOOK_URL = process.env.N8N_OUTBOUND_WEBHOOK_URL;
+// Teto de tentativas por disparo. Acima disso, marca 'falha' e NAO gera mais
+// (protege contra loop de regeneracao no Claude quando o envio falha).
+const OUTBOUND_MAX_TENTATIVAS = parseInt(process.env.OUTBOUND_MAX_TENTATIVAS || '3', 10);
 
 async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
   // Controle global do dashboard: pausado/encerrado bloqueia o envio.
@@ -507,6 +512,15 @@ async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
   const resultados = [];
   for (const p of pendentes) {
     try {
+      // Teto de tentativas: conta ANTES de gerar (a chamada Claude e o custo).
+      // Se ja estourou, marca falha e sai sem gerar — corta o loop de regeneracao.
+      const tentativa = await incrementarTentativa(p.agendamentoId, p.tentativas);
+      if (tentativa > OUTBOUND_MAX_TENTATIVAS) {
+        await marcarFalha(p.agendamentoId, `max tentativas (${OUTBOUND_MAX_TENTATIVAS})`);
+        resultados.push({ agendamentoId: p.agendamentoId, status: 'falha_max', tentativa });
+        continue;
+      }
+
       const historico = await ultimasMensagensDoLead(p.lead.id, 10);
       const { texto, tokensIn, tokensOut } = await formularToque({
         lead: p.lead,

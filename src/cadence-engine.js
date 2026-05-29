@@ -76,6 +76,15 @@ export function proximoSlotUtil(date = new Date()) {
   return new Date(`${isoSP}-03:00`);
 }
 
+/**
+ * True se `date` cai dentro da janela util (08:00–17:30 seg-sex SP).
+ * Reusa proximoSlotUtil: se o proximo slot util e <= agora, e porque ja estamos
+ * dentro da janela. Respeita o bypass CADENCE_IGNORAR_JANELA=1.
+ */
+export function dentroDaJanela(date = new Date()) {
+  return proximoSlotUtil(date).getTime() <= date.getTime();
+}
+
 // ─── Enroll / agendamento ───────────────────────────────────────────────────
 
 /**
@@ -133,10 +142,14 @@ export async function enrolarLead(leadId, cadenciaNome) {
  * status do lead permite envio). Inclui dados de lead + passo já joinados.
  */
 export async function puxarPendentes(limite = 50) {
+  // Janela util: fora de 08:00–17:30 seg-sex SP, nao puxa nada (e portanto nao
+  // gera toque no Claude). Sem isso, atraso acumulado dispara rajada fora de hora.
+  if (!dentroDaJanela()) return [];
+
   const { data, error } = await supabase
     .from('agendamentos_disparos')
     .select(`
-      id, passo, agendado_para,
+      id, passo, agendado_para, tentativas,
       leads!inner ( id, nome, empresa, telefone, segmento, status, modo, cadencia_id, passo_atual )
     `)
     .eq('status', 'pendente')
@@ -163,8 +176,31 @@ export async function puxarPendentes(limite = 50) {
     agendamentoId: a.id,
     lead: a.leads,
     passo: a.passo,
+    tentativas: a.tentativas ?? 0,
     promptOrientacao: passosPorCad[a.leads.cadencia_id]?.[a.passo] || '',
   }));
+}
+
+/** Incrementa o contador de tentativas do disparo e devolve o novo valor. */
+export async function incrementarTentativa(agendamentoId, atual = 0) {
+  const novo = (atual ?? 0) + 1;
+  const { error } = await supabase.from('agendamentos_disparos')
+    .update({ tentativas: novo }).eq('id', agendamentoId);
+  if (error) throw error;
+  return novo;
+}
+
+/** Marca o disparo como 'falha' (sai da fila, nao regenera mais). */
+export async function marcarFalha(agendamentoId, motivo = '') {
+  const { error } = await supabase.from('agendamentos_disparos')
+    .update({ status: 'falha', executado_em: new Date().toISOString() }).eq('id', agendamentoId);
+  if (error) throw error;
+  if (motivo) {
+    try {
+      const { data } = await supabase.from('agendamentos_disparos').select('lead_id').eq('id', agendamentoId).maybeSingle();
+      if (data?.lead_id) await registrarEvento(data.lead_id, 'disparo_falhou', { agendamento_id: agendamentoId, motivo });
+    } catch { /* evento e best-effort */ }
+  }
 }
 
 // ─── Formular toque (Claude SDK) ────────────────────────────────────────────
@@ -254,7 +290,7 @@ Escreva agora a mensagem pro WhatsApp do lead. Texto direto, sem prefixo, sem as
     prompt: userPrompt,
     options: {
       systemPrompt,
-      model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
+      model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
       allowedTools: [],
       maxTurns: 1,
     },

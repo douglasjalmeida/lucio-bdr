@@ -173,7 +173,7 @@ Responda como Lúcio. Texto direto, sem prefixo.`;
       prompt: userPrompt,
       options: {
         systemPrompt,
-        model: process.env.LUCIO_MODEL || 'claude-sonnet-4-6',
+        model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
         allowedTools,
         maxTurns: 1,
       },
