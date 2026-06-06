@@ -9,13 +9,12 @@
 // - Não mexe em lead.modo (continua mudo). Só atualiza pipeline no Chatwoot.
 // - Debounce por conversationId pra não chamar Haiku a cada msg em rajada.
 
-import Anthropic from '@anthropic-ai/sdk';
+import { gerarTexto, claudeEnabled } from './claude-client.js';
 import {
   chatwootEnabled, aplicarLabelsAditivo, removerLabels, addNotaPrivada,
 } from './chatwoot-client.js';
 import { ultimasMensagensDoLead, registrarEvento, registrarTransicao, espelharNotaNoCrm } from './supabase-client.js';
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODEL = process.env.LUCIO_SQL_CLASSIFIER_MODEL || 'claude-haiku-4-5-20251001';
 const DEBOUNCE_MS = parseInt(process.env.SQL_CLASSIFIER_DEBOUNCE_MS || '30000', 10);
 
@@ -102,7 +101,7 @@ function montarHistorico(mensagens) {
 }
 
 async function classificarComHaiku({ lead, historico }) {
-  if (!client) return { etapa: 'manter', motivo_skip: 'ANTHROPIC_API_KEY ausente' };
+  if (!claudeEnabled()) return { etapa: 'manter', motivo_skip: 'ANTHROPIC_API_KEY ausente' };
   const userMsg = `Lead: ${lead?.nome || '?'} | Empresa: ${lead?.empresa || '?'}
 
 Histórico recente da conversa (já em handoff humano):
@@ -111,21 +110,21 @@ ${historico}
 Classifique a etapa atual.`;
 
   try {
-    const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: 200,
+    const { texto, tokensIn, tokensOut } = await gerarTexto({
       system: SYSTEM,
-      messages: [{ role: 'user', content: userMsg }],
+      user: userMsg,
+      model: MODEL,
+      maxTokens: 200,
+      label: 'sql-classifier',
     });
-    const text = resp.content?.find(c => c.type === 'text')?.text || '';
-    const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+    const cleaned = texto.replace(/^```json\s*|\s*```$/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
       etapa: parsed.etapa || 'manter',
       confianca: parsed.confianca || 'baixa',
       gatilho: parsed.gatilho || '',
-      tokensIn: resp.usage?.input_tokens ?? null,
-      tokensOut: resp.usage?.output_tokens ?? null,
+      tokensIn,
+      tokensOut,
     };
   } catch (err) {
     console.error('[sql-classifier] erro Haiku:', err.message);

@@ -3,7 +3,7 @@
 // Identidade carregada de .claude/identidade-lucio.md.
 // Prompt de cadência/qualificação fica POSTERGADO (Bloco C da spec).
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { gerarTexto } from './claude-client.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -162,37 +162,18 @@ ${mensagemAtual}
 
 Responda como Lúcio. Texto direto, sem prefixo.`;
 
-  const allowedTools = []; // F1: nenhuma. Vão entrar tools de domínio Supabase + Chatwoot quando o agente precisar agir.
-
-  let respostaTexto = '';
-  let sessionId = null;
-  let tokensIn = null, tokensOut = null;
-
   try {
-    for await (const event of query({
-      prompt: userPrompt,
-      options: {
-        systemPrompt,
-        model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
-        allowedTools,
-        maxTurns: 1,
-      },
-    })) {
-      if (event.type === 'assistant' && event.message?.content) {
-        for (const block of event.message.content) {
-          if (block.type === 'text') respostaTexto += block.text;
-        }
-      }
-      if (event.type === 'result') {
-        sessionId = event.session_id || null;
-        tokensIn = event.usage?.input_tokens ?? null;
-        tokensOut = event.usage?.output_tokens ?? null;
-      }
-    }
+    const { texto, tokensIn, tokensOut } = await gerarTexto({
+      system: systemPrompt,
+      user: userPrompt,
+      maxTokens: parseInt(process.env.LUCIO_MAX_TOKENS || '1024', 10),
+      label: 'inbound',
+    });
+    // sessionId não existe mais (era do agent SDK). Ninguém consome — mantido null
+    // na assinatura por compatibilidade.
+    return { resposta: texto, sessionId: null, tokensIn, tokensOut };
   } catch (err) {
     console.error('[lucio-agent] erro no SDK:', err);
     throw err;
   }
-
-  return { resposta: respostaTexto.trim(), sessionId, tokensIn, tokensOut };
 }

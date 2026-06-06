@@ -12,7 +12,7 @@
 // Janela e jitter de DISPARO ficam no WF-Lucio-Outbound (uazapi /sender/advanced).
 // Aqui a gente só decide QUANDO o agendamento fica elegível (agendado_para).
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { gerarTexto } from './claude-client.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { supabase, gravarMensagem, registrarEvento, atualizarLead } from './supabase-client.js';
@@ -285,27 +285,13 @@ Orientação: ${promptOrientacao}
 
 Escreva agora a mensagem pro WhatsApp do lead. Texto direto, sem prefixo, sem aspas.`;
 
-  let resposta = '', tokensIn = null, tokensOut = null;
-  for await (const event of query({
-    prompt: userPrompt,
-    options: {
-      systemPrompt,
-      model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
-      allowedTools: [],
-      maxTurns: 1,
-    },
-  })) {
-    if (event.type === 'assistant' && event.message?.content) {
-      for (const block of event.message.content) {
-        if (block.type === 'text') resposta += block.text;
-      }
-    }
-    if (event.type === 'result') {
-      tokensIn = event.usage?.input_tokens ?? null;
-      tokensOut = event.usage?.output_tokens ?? null;
-    }
-  }
-  return { texto: resposta.trim(), tokensIn, tokensOut };
+  const { texto, tokensIn, tokensOut } = await gerarTexto({
+    system: systemPrompt,
+    user: userPrompt,
+    maxTokens: parseInt(process.env.LUCIO_MAX_TOKENS || '1024', 10),
+    label: `toque-${passo}`,
+  });
+  return { texto, tokensIn, tokensOut };
 }
 
 // ─── Marcar enviado ─────────────────────────────────────────────────────────

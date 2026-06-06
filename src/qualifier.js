@@ -3,9 +3,8 @@
 // de intenção forte (preço, prazo, urgência real, pedido de humano).
 // Retorna estrutura usada pelo handoff.
 
-import Anthropic from '@anthropic-ai/sdk';
+import { gerarTexto, claudeEnabled } from './claude-client.js';
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const MODEL = process.env.LUCIO_QUALIFIER_MODEL || 'claude-haiku-4-5-20251001';
 
 const SYSTEM = `Você é um classificador de qualificação BDR para a Luminus (geradores + MPaaS B2B).
@@ -35,7 +34,7 @@ Responda APENAS JSON válido nesse formato exato (sem markdown, sem comentário)
 }`;
 
 export async function avaliarQualificacao({ lead, historico, ultimaRespostaLucio }) {
-  if (!client) {
+  if (!claudeEnabled()) {
     return { qualified: false, motivo_skip: 'ANTHROPIC_API_KEY ausente' };
   }
 
@@ -55,14 +54,14 @@ ${ultimaRespostaLucio || '(vazio)'}
 Classifique agora.`;
 
   try {
-    const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: 400,
+    const { texto, tokensIn, tokensOut } = await gerarTexto({
       system: SYSTEM,
-      messages: [{ role: 'user', content: userMsg }],
+      user: userMsg,
+      model: MODEL,
+      maxTokens: 400,
+      label: 'qualifier',
     });
-    const text = resp.content?.find(c => c.type === 'text')?.text || '';
-    const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+    const cleaned = texto.replace(/^```json\s*|\s*```$/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
       qualified: !!parsed.qualified,
@@ -70,8 +69,8 @@ Classifique agora.`;
       dor_identificada: parsed.dor_identificada || '',
       sinais: parsed.sinais || '',
       motivo_handoff: parsed.motivo_handoff || '',
-      tokensIn: resp.usage?.input_tokens ?? null,
-      tokensOut: resp.usage?.output_tokens ?? null,
+      tokensIn,
+      tokensOut,
     };
   } catch (err) {
     console.error('[qualifier] erro:', err.message);
