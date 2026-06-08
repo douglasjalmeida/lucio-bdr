@@ -213,9 +213,25 @@ Regras:
 - Sem markdown. Negrito com *asteriscos simples* só se realmente precisar (raro).
 - NUNCA use travessão (— ou –) no texto. Use vírgula, ou quebre em duas frases.
 - Não prometa preço, prazo ou disponibilidade. Você qualifica e provoca curiosidade.
-- Termine com pergunta aberta quando fizer sentido — você quer resposta, não monólogo.
-- Se a orientação do passo pedir tag de teste tipo "[teste: toque N — ...]", PRESERVE a tag literal no fim.
+- Termine com pergunta aberta quando fizer sentido, você quer resposta, não monólogo.
+- NUNCA escreva anotações internas, meta-comentários ou tags entre colchetes (ex: "[teste...]", "[toque N]"). O lead lê tudo que você escrever. Só o texto puro da mensagem sai.
 `;
+
+/**
+ * Rede de segurança em CÓDIGO (não confiar no prompt): remove qualquer
+ * anotação interna que tenha vazado pro texto antes de ele sair pro lead.
+ * - Arranca tags "[teste...]" / "[toque N...]" em qualquer posição.
+ * - Troca travessão (— ou –) por vírgula (regra de escrita do Lúcio).
+ */
+export function limparTextoOutbound(texto = '') {
+  return String(texto)
+    .replace(/\[\s*(teste|toque)\b[^\]]*\]/gi, '') // remove tag interna vazada
+    .replace(/\s*[—–]\s*/g, ', ')                  // travessão -> vírgula
+    .replace(/[ \t]+\n/g, '\n')                    // limpa espaço antes de quebra
+    .replace(/\n{3,}/g, '\n\n')                    // no máximo 1 linha em branco
+    .replace(/[ \t]{2,}/g, ' ')                    // colapsa espaço duplo
+    .trim();
+}
 
 /**
  * Carrega obras vinculadas ao lead (via lead_obras) — pra contexto outbound.
@@ -291,7 +307,7 @@ Escreva agora a mensagem pro WhatsApp do lead. Texto direto, sem prefixo, sem as
     maxTokens: parseInt(process.env.LUCIO_MAX_TOKENS || '1024', 10),
     label: `toque-${passo}`,
   });
-  return { texto, tokensIn, tokensOut };
+  return { texto: limparTextoOutbound(texto), tokensIn, tokensOut };
 }
 
 // ─── Marcar enviado ─────────────────────────────────────────────────────────

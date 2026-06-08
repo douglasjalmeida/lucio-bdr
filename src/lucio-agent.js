@@ -4,6 +4,7 @@
 // Prompt de cadência/qualificação fica POSTERGADO (Bloco C da spec).
 
 import { gerarTexto } from './claude-client.js';
+import { limparTextoOutbound } from './cadence-engine.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -171,7 +172,10 @@ Responda como Lúcio. Texto direto, sem prefixo.`;
     });
     // sessionId não existe mais (era do agent SDK). Ninguém consome — mantido null
     // na assinatura por compatibilidade.
-    return { resposta: texto, sessionId: null, tokensIn, tokensOut };
+    // Rede de segurança: arranca tag interna vazada / normaliza travessão antes
+    // de devolver. O token [[CENTRAL-AUTOMATICA]] (URA) usa colchete duplo e
+    // sobrevive — a detecção de URA no server.js segue funcionando.
+    return { resposta: limparTextoOutbound(texto), sessionId: null, tokensIn, tokensOut };
   } catch (err) {
     console.error('[lucio-agent] erro no SDK:', err);
     throw err;
