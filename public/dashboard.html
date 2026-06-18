@@ -398,10 +398,73 @@
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); background-clip: padding-box; border: 3px solid transparent; }
 
+  /* ── Tabs (Tráfego · Bruno · Lúcio) ────────────────────── */
+  .tabs {
+    display: flex; gap: 2px; align-items: center;
+    padding: 0 32px; max-width: 1400px; margin: 0 auto; width: 100%;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    background: transparent; border: none; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: 500;
+    color: var(--text-2); padding: 14px 16px;
+    display: inline-flex; align-items: center; gap: 8px;
+    position: relative; transition: color 0.2s ease;
+  }
+  .tab-btn svg { width: 15px; height: 15px; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); }
+  .tab-btn.active::after {
+    content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px;
+    background: linear-gradient(90deg, var(--blue), var(--violet)); border-radius: 2px;
+  }
+  .tab-panel { animation: fadeUp 0.4s cubic-bezier(0.32,0.72,0.18,1) backwards; }
+  .tab-panel[hidden] { display: none; }
+  .kpi.amber .kpi-icon { background: rgba(251,191,36,0.14); color: var(--amber); }
+  .kpi.teal .kpi-icon  { background: rgba(45,212,191,0.14); color: var(--teal); }
+
+  /* ── Tráfego ───────────────────────────────────────────── */
+  .trafego-meta { color: var(--muted); font-size: 12px; padding: 4px 0 18px; }
+  .criativos { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+  .criativo {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden; display: flex; flex-direction: column;
+    backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+    transition: transform 0.3s cubic-bezier(0.32,0.72,0.18,1), border-color 0.3s ease;
+  }
+  .criativo:hover { transform: translateY(-2px); border-color: var(--border-hi); }
+  .criativo-img {
+    position: relative; aspect-ratio: 16/9; background: var(--bg-2);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 11px;
+  }
+  .criativo-img img { width: 100%; height: 100%; object-fit: cover; }
+  .criativo-flags { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; }
+  .flag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .flag svg { width: 11px; height: 11px; }
+  .flag.escalar { background: rgba(74,222,128,0.92); color: #07090f; }
+  .flag.pausar  { background: rgba(248,113,113,0.92); color: #fff; }
+  .flag-pausado { position: absolute; top: 8px; right: 8px; background: rgba(7,9,15,0.8); color: var(--muted); padding: 2px 8px; border-radius: 999px; font-size: 10px; }
+  .criativo-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .criativo-nome { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .criativo-obj { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .criativo-stats { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; }
+  .criativo-stats .k { color: var(--muted); }
+  .criativo-stats .v { text-align: right; color: var(--text); }
+
+  /* ── Bruno (atividade recente) ─────────────────────────── */
+  .atividade { display: flex; flex-direction: column; }
+  .atividade-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .atividade-row:last-child { border-bottom: none; }
+  .atividade-tempo { width: 48px; flex-shrink: 0; font-size: 11px; color: var(--muted); padding-top: 1px; }
+  .atividade-resumo { font-size: 13px; color: var(--text); word-break: break-word; }
+  .atividade-tipo { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-top: 2px; }
+
   @media (max-width: 720px) {
-    header, .filtros, main { padding-left: 18px; padding-right: 18px; }
+    header, .filtros, main, .tabs { padding-left: 18px; padding-right: 18px; }
     .funil-row { grid-template-columns: 140px 1fr 50px; }
     .funil-row .tempo { display: none; }
+    .tab-btn { padding: 12px 10px; font-size: 13px; }
   }
 </style>
 </head>
@@ -430,6 +493,22 @@
   </div>
 </header>
 
+<nav class="tabs">
+  <button class="tab-btn" data-tab="trafego">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+    Tráfego
+  </button>
+  <button class="tab-btn" data-tab="bruno">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Bruno SDR
+  </button>
+  <button class="tab-btn active" data-tab="lucio">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
+    Lúcio BDR
+  </button>
+</nav>
+
+<div id="tab-lucio" class="tab-panel">
 <div class="filtros">
   <div class="filtro-grupo">
     <label>Cadência</label>
@@ -520,6 +599,21 @@
     </div>
   </div>
 </main>
+</div><!-- /tab-lucio -->
+
+<!-- ════════════ Aba Tráfego ════════════ -->
+<main id="tab-trafego" class="tab-panel" hidden>
+  <div id="trafego-conteudo">
+    <div class="vazio">Carregando tráfego…</div>
+  </div>
+</main>
+
+<!-- ════════════ Aba Bruno SDR ════════════ -->
+<main id="tab-bruno" class="tab-panel" hidden>
+  <div id="bruno-conteudo">
+    <div class="vazio">Carregando Bruno…</div>
+  </div>
+</main>
 
 <script>
 let periodoAtual = '7d';
@@ -548,6 +642,19 @@ function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+const brl = n => n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const pct = n => n == null ? '—' : Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '%';
+const num = n => n == null ? '—' : Number(n).toLocaleString('pt-BR');
+function tempoRelativo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms)) return '—';
+  const min = Math.round(ms / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return min + 'min';
+  const h = Math.round(min / 60);
+  if (h < 24) return h + 'h';
+  return Math.round(h / 24) + 'd';
+}
 
 const ETAPAS_ORDEM = [
   'em-cadencia', 'mql-respondeu', 'mql-qualificado', 'humano-atendendo',
@@ -563,6 +670,17 @@ const ICONS = {
   play:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
   pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
   stop:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+  dollar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  chat:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+  percent:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>',
+  cursor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 9 5 12 1.8-5.2L21 14Z"/><path d="M7.2 2.2 8 5.1"/><path d="m5.1 8-2.9-.8"/><path d="M14 4.1 12 6"/><path d="m6 12-1.9 2"/></svg>',
+  badge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  handoff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  send:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+  msgoff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h2"/><line x1="2" y1="2" x2="22" y2="22"/></svg>',
+  activity:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
 };
 
 const ESTADO_LABEL = { ativo: 'Enviando', pausado: 'Pausado', encerrado: 'Encerrado' };
@@ -777,13 +895,168 @@ document.getElementById('cadencia-sel').addEventListener('change', e => {
   carregar();
 });
 
+// ── Abas (Tráfego · Bruno · Lúcio) ─────────────────────────
+let tabAtiva = 'lucio';
+
+function marcarUpdate() {
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('pt-BR');
+}
+function dataBR(d) {
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, dd] = d.split('-'); return `${dd}/${m}/${y}`;
+  }
+  return new Date(d).toLocaleDateString('pt-BR');
+}
+function kpiCard(k) {
+  return `<div class="kpi ${k.cls || ''}">
+    <div class="kpi-head"><div class="kpi-label">${k.label}</div><div class="kpi-icon">${k.icon}</div></div>
+    <div class="kpi-valor mono">${k.valor}</div>
+    ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
+  </div>`;
+}
+
+// ── Tráfego ──
+function ordenarPorCpl(cs) {
+  return [...cs].sort((a, b) => {
+    if (a.cpl == null && b.cpl == null) return 0;
+    if (a.cpl == null) return 1;
+    if (b.cpl == null) return -1;
+    return a.cpl - b.cpl;
+  });
+}
+function piorCriativoId(cs) {
+  if (cs.length < 2) return null;
+  const sc = cs.filter(c => c.conversas === 0 && c.gasto > 0);
+  if (sc.length) return sc.reduce((p, c) => (c.gasto > p.gasto ? c : p)).id;
+  const cc = cs.filter(c => c.cpl != null);
+  if (!cc.length) return null;
+  return cc.reduce((p, c) => (c.cpl > p.cpl ? c : p)).id;
+}
+async function carregarTrafego() {
+  const box = document.getElementById('trafego-conteudo');
+  try {
+    const r = await fetch(api('/api/trafego'), fetchOpts);
+    const j = await r.json();
+    if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte de tráfego indisponível')}</div>`; return; }
+    renderTrafego(j.snapshot);
+    marcarUpdate();
+  } catch (e) {
+    box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
+  }
+}
+function renderTrafego(s) {
+  const box = document.getElementById('trafego-conteudo');
+  if (!s) {
+    box.innerHTML = `<div class="vazio"><div>Sem dado de tráfego</div>
+      <div style="font-size:12px;margin-top:6px">nenhum snapshot da Meta foi puxado ainda. Os KPIs aparecem assim que o primeiro snapshot for gravado.</div></div>`;
+    return;
+  }
+  const criativos = ordenarPorCpl(s.criativos || []);
+  const melhorId = (criativos.find(c => c.cpl != null) || {}).id ?? null;
+  const piorId = piorCriativoId(s.criativos || []);
+  const kpis = [
+    { label: 'Investimento', valor: brl(s.investimento), icon: ICONS.dollar, cls: '' },
+    { label: 'Conversas', valor: num(s.conversas), icon: ICONS.chat, cls: 'green' },
+    { label: 'CPL', valor: brl(s.cpl), icon: ICONS.target, cls: 'violet', sub: 'custo por lead' },
+    { label: 'CTR', valor: pct(s.ctr), icon: ICONS.percent, cls: 'teal' },
+    { label: 'CPC', valor: brl(s.cpc), icon: ICONS.cursor, cls: 'amber' },
+  ];
+  const cards = criativos.map(c => {
+    const flags = [
+      c.id === melhorId ? `<span class="flag escalar">${ICONS.arrowUp}escalar</span>` : '',
+      c.id === piorId ? `<span class="flag pausar">${ICONS.arrowUp}pausar</span>` : '',
+    ].join('');
+    const img = c.imagem_url
+      ? `<img src="${escapeHtml(c.imagem_url)}" alt="${escapeHtml(c.nome)}">`
+      : 'sem imagem';
+    return `<div class="criativo">
+      <div class="criativo-img">${img}
+        ${flags ? `<div class="criativo-flags">${flags}</div>` : ''}
+        ${c.status === 'pausado' ? `<span class="flag-pausado">pausado</span>` : ''}
+      </div>
+      <div class="criativo-body">
+        <div>
+          <div class="criativo-nome" title="${escapeHtml(c.nome)}">${escapeHtml(c.nome)}</div>
+          <div class="criativo-obj">${escapeHtml(c.objetivo || '')}</div>
+        </div>
+        <div class="criativo-stats">
+          <span class="k">CPL</span><span class="v mono">${brl(c.cpl)}</span>
+          <span class="k">Gasto</span><span class="v mono">${brl(c.gasto)}</span>
+          <span class="k">Conversas</span><span class="v mono">${num(c.conversas)}</span>
+          <span class="k">CTR</span><span class="v mono">${pct(c.ctr)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="trafego-meta">Janela ${dataBR(s.janela_inicio)} – ${dataBR(s.janela_fim)} · snapshot de ${formatarData(s.capturado_em)} · fonte ${escapeHtml(s.origem || 'mcp')}</div>
+    <div class="kpis">${kpis.map(kpiCard).join('')}</div>
+    <div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Criativos</h2><span class="hint">ordenados por CPL — melhor primeiro</span></div>
+      ${criativos.length ? `<div class="criativos">${cards}</div>` : '<div class="vazio">Snapshot sem criativos.</div>'}
+    </div>`;
+}
+
+// ── Bruno ──
+async function carregarBruno() {
+  const box = document.getElementById('bruno-conteudo');
+  try {
+    const r = await fetch(api('/api/bruno'), fetchOpts);
+    const j = await r.json();
+    if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte do Bruno indisponível')}</div>`; return; }
+    renderBruno(j.funil, j.atividade);
+    marcarUpdate();
+  } catch (e) {
+    box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
+  }
+}
+function renderBruno(f, ativ) {
+  const box = document.getElementById('bruno-conteudo');
+  const kpis = [
+    { label: 'Leads', valor: num(f.leads), icon: ICONS.users, cls: '' },
+    { label: 'Qualificados', valor: num(f.qualificados), icon: ICONS.badge, cls: 'green' },
+    { label: 'Handoffs', valor: num(f.handoffs), icon: ICONS.handoff, cls: 'violet' },
+    { label: 'Follow-ups abertos', valor: num(f.followupsAbertos), icon: ICONS.clock, cls: 'amber' },
+    { label: 'Follow-ups enviados', valor: num(f.followupsEnviados), icon: ICONS.send, cls: '' },
+    { label: 'Sem resposta', valor: num(f.semResposta), icon: ICONS.msgoff, cls: f.semResposta > 0 ? 'red' : '' },
+  ];
+  const linhas = (ativ || []).map(a => `<div class="atividade-row">
+    <div class="atividade-tempo mono">${tempoRelativo(a.quando)}</div>
+    <div><div class="atividade-resumo">${escapeHtml(a.resumo)}</div><div class="atividade-tipo">${escapeHtml(a.tipo)}</div></div>
+  </div>`).join('');
+  box.innerHTML = `
+    <div class="kpis">${kpis.map(kpiCard).join('')}</div>
+    <div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Atividade recente</h2><span class="hint">eventos + mensagens · mais recentes primeiro</span></div>
+      ${(ativ && ativ.length) ? `<div class="atividade">${linhas}</div>` : '<div class="vazio">Sem atividade ainda.</div>'}
+    </div>`;
+}
+
+function refreshAtivo() {
+  if (tabAtiva === 'trafego') carregarTrafego();
+  else if (tabAtiva === 'bruno') carregarBruno();
+  else carregar();
+}
+
+document.querySelector('.tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  const tab = btn.dataset.tab;
+  if (tab === tabAtiva) return;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('.tab-panel').forEach(p => { p.hidden = (p.id !== 'tab-' + tab); });
+  tabAtiva = tab;
+  countdown = 10;
+  refreshAtivo();
+});
+
 // ── Countdown + ring SVG ───────────────────────────────────
 const ring = document.querySelector('.countdown-ring .progress');
 setInterval(() => {
   countdown--;
   if (countdown <= 0) {
     countdown = 10;
-    carregar();
+    refreshAtivo();
   }
   document.getElementById('countdown').textContent = countdown;
   const offset = RING_PERIM * (1 - countdown / 10);

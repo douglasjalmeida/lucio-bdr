@@ -47,6 +47,7 @@ import {
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
+import { getSnapshotTrafego, getFunilBruno, getAtividadeBruno } from './dashboard-tabs.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -162,6 +163,31 @@ app.post('/api/outbound-estado', exigirAuth, async (req, res) => {
     console.log(`[bridge] outbound ${acao} → estado=${estado} (via dashboard)`);
     res.json({ ok: true, ...e });
   } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+// ── Aba Tráfego: snapshot mais recente da Meta (tabela trafego_snapshots) ──
+// snapshot:null => "sem dado ainda" (estado, não erro). Erro de fonte => 500.
+app.get('/api/trafego', exigirAuth, async (_req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const snapshot = await getSnapshotTrafego();
+    res.json({ ok: true, snapshot });
+  } catch (err) {
+    console.error('[bridge] erro /api/trafego:', err);
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+// ── Aba Bruno: funil inbound + atividade recente (tabelas bruno_*) ──
+app.get('/api/bruno', exigirAuth, async (_req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const [funil, atividade] = await Promise.all([getFunilBruno(), getAtividadeBruno()]);
+    res.json({ ok: true, funil, atividade });
+  } catch (err) {
+    console.error('[bridge] erro /api/bruno:', err);
     res.status(500).json({ ok: false, erro: err.message });
   }
 });

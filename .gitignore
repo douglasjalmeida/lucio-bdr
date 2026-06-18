@@ -20,3 +20,6 @@ docs/inbox/leads-brutos/
 # Screenshots descartados na raiz
 CleanShot*.webp
 CleanShot*.png
+
+# Snapshot de tráfego preenchido pelo secretário (dados reais; verdade fica no Supabase)
+scripts/snapshot-trafego.json

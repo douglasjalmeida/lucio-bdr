@@ -1,0 +1,47 @@
+{
+  "janela_inicio": "2026-06-08",
+  "janela_fim": "2026-06-14",
+  "conta_id": "act_211274648569722",
+  "investimento": 576.05,
+  "impressoes": 0,
+  "conversas": 17,
+  "ctr": 0.56,
+  "cpc": 4.47,
+  "cpl": 33.89,
+  "origem": "mcp",
+  "criativos": [
+    {
+      "id": "AD01",
+      "nome": "AD01 - Geradores de Energia",
+      "objetivo": "messaging_conversation",
+      "cpl": 24.35,
+      "gasto": 194.76,
+      "conversas": 8,
+      "ctr": 0.69,
+      "status": "ativo",
+      "imagem_url": null
+    },
+    {
+      "id": "AD02",
+      "nome": "AD02 - Geradores de Energia",
+      "objetivo": "messaging_conversation",
+      "cpl": 40.30,
+      "gasto": 120.89,
+      "conversas": 3,
+      "ctr": 0.58,
+      "status": "ativo",
+      "imagem_url": null
+    },
+    {
+      "id": "AD03",
+      "nome": "AD03 - Geradores de Energia",
+      "objetivo": "messaging_conversation",
+      "cpl": 43.40,
+      "gasto": 260.40,
+      "conversas": 6,
+      "ctr": 0.46,
+      "status": "ativo",
+      "imagem_url": null
+    }
+  ]
+}
