@@ -967,7 +967,7 @@ function renderTrafego(s) {
       c.id === piorId ? `<span class="flag pausar">${ICONS.arrowUp}pausar</span>` : '',
     ].join('');
     const img = c.imagem_url
-      ? `<img src="${escapeHtml(c.imagem_url)}" alt="${escapeHtml(c.nome)}">`
+      ? `<img src="${escapeHtml(c.imagem_url)}" alt="${escapeHtml(c.nome)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='sem imagem'">`
       : 'sem imagem';
     return `<div class="criativo">
       <div class="criativo-img">${img}

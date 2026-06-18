@@ -10,6 +10,12 @@
 // o fluxo insere na MESMA tabela — o dashboard não muda.
 //
 // Modelo dos campos: ver scripts/snapshot-trafego.example.json.
+//
+// IMAGEM DO CRIATIVO (imagem_url): o endpoint de *insights* da Meta NÃO traz a
+// imagem. Pra cada anúncio, puxar à parte o creative e pegar a URL da imagem:
+//   GET /{ad-id}?fields=creative{thumbnail_url,image_url}
+// e gravar em criativos[].imagem_url (image_url = imagem cheia; thumbnail_url =
+// preview pequeno, sempre presente). Sem isso o card mostra "sem imagem".
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
