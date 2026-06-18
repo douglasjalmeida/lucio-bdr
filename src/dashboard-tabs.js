@@ -51,40 +51,99 @@ export async function getFunilBruno() {
   return { leads, qualificados, handoffs, followupsAbertos, followupsEnviados, semResposta };
 }
 
-// Atividade recente: merge dos últimos bruno_eventos + bruno_mensagens, desc.
-export async function getAtividadeBruno(limite = 15) {
-  const [eventos, mensagens] = await Promise.all([
+// Ordem canônica do funil do Bruno (inbound). Stages fora dessa lista entram no
+// fim, na ordem que aparecerem.
+const BRUNO_STAGES = [
+  'novo', 'aguardando_followup', 'qualificado', 'handoff',
+  'no_response', 'devolvido_bot', 'encerrado',
+];
+
+// Dados ricos da aba Bruno (espelham o painel do Lúcio):
+// - distribuicao: leads por etapa + tempo médio parado (SLA)
+// - leads: cada lead com tempo na etapa atual + timeline de eventos, desc por tempo
+// - mensagens: toques enviados (mais recentes primeiro)
+//
+// "Tempo na etapa atual" usa atualizado_em (marca a última mudança de etapa do
+// lead) como entrada na etapa. Não há tabela de transições no Bruno como no
+// Lúcio; a timeline detalhada vem de bruno_eventos.
+export async function getBrunoDashboard() {
+  const agora = Date.now();
+  const [leadsRes, eventosRes, msgsRes] = await Promise.all([
+    supabase
+      .from('bruno_leads')
+      .select('id, nome, empresa, telefone, stage, criado_em, atualizado_em'),
     supabase
       .from('bruno_eventos')
-      .select('tipo, criado_em')
-      .order('criado_em', { ascending: false })
-      .limit(limite),
+      .select('lead_id, tipo, criado_em')
+      .order('criado_em', { ascending: true }),
     supabase
       .from('bruno_mensagens')
-      .select('direcao, autor, texto, enviada_em')
+      .select('lead_id, autor, texto, toque, enviada_em')
+      .eq('direcao', 'out')
       .order('enviada_em', { ascending: false })
-      .limit(limite),
+      .limit(80),
   ]);
+  if (leadsRes.error) throw leadsRes.error;
+  if (eventosRes.error) throw eventosRes.error;
+  if (msgsRes.error) throw msgsRes.error;
 
-  if (eventos.error) throw eventos.error;
-  if (mensagens.error) throw mensagens.error;
+  const leads = leadsRes.data ?? [];
+  const eventos = eventosRes.data ?? [];
+  const msgs = msgsRes.data ?? [];
 
-  const deEventos = (eventos.data ?? []).map((e) => ({
-    quando: e.criado_em,
-    tipo: `evento:${e.tipo}`,
-    resumo: rotuloEvento(e.tipo),
+  // Timeline de eventos por lead.
+  const evPorLead = new Map();
+  for (const e of eventos) {
+    if (!evPorLead.has(e.lead_id)) evPorLead.set(e.lead_id, []);
+    evPorLead.get(e.lead_id).push({ tipo: e.tipo, resumo: rotuloEvento(e.tipo), em: e.criado_em });
+  }
+
+  // Leads detalhados, ordenados por tempo na etapa (mais parado primeiro = SLA).
+  const leadsDetalhe = leads
+    .map((l) => {
+      const entrou = l.atualizado_em || l.criado_em;
+      return {
+        nome: l.nome,
+        empresa: l.empresa,
+        telefone: l.telefone,
+        stage: l.stage,
+        entrou_em: entrou,
+        tempo_no_estagio_ms: agora - new Date(entrou).getTime(),
+        eventos: evPorLead.get(l.id) ?? [],
+      };
+    })
+    .sort((a, b) => b.tempo_no_estagio_ms - a.tempo_no_estagio_ms);
+
+  // Distribuição por etapa + tempo médio parado (SLA agregado).
+  const porStage = new Map();
+  for (const l of leadsDetalhe) {
+    if (!porStage.has(l.stage)) porStage.set(l.stage, []);
+    porStage.get(l.stage).push(l.tempo_no_estagio_ms);
+  }
+  const extras = [...porStage.keys()].filter((s) => !BRUNO_STAGES.includes(s));
+  const distribuicao = [...BRUNO_STAGES, ...extras]
+    .filter((s) => porStage.has(s))
+    .map((stage) => {
+      const arr = porStage.get(stage);
+      return {
+        stage,
+        n: arr.length,
+        tempo_medio_ms: Math.round(arr.reduce((s, x) => s + x, 0) / arr.length),
+      };
+    });
+
+  // Mensagens enviadas (toques) — join nome/telefone do lead.
+  const leadMap = new Map(leads.map((l) => [l.id, l]));
+  const mensagens = msgs.map((m) => ({
+    nome: leadMap.get(m.lead_id)?.nome || '—',
+    telefone: leadMap.get(m.lead_id)?.telefone || '',
+    autor: m.autor,
+    toque: m.toque,
+    texto: m.texto,
+    enviada_em: m.enviada_em,
   }));
 
-  const deMensagens = (mensagens.data ?? []).map((m) => {
-    const texto = (m.texto || '').trim() || '(sem texto)';
-    const dir = m.direcao === 'entrada' ? '↘ recebida' : '↗ enviada';
-    return { quando: m.enviada_em, tipo: 'mensagem', resumo: `${dir} · ${truncar(texto, 80)}` };
-  });
-
-  return [...deEventos, ...deMensagens]
-    .filter((a) => a.quando)
-    .sort((a, b) => new Date(b.quando).getTime() - new Date(a.quando).getTime())
-    .slice(0, limite);
+  return { distribuicao, leads: leadsDetalhe, mensagens };
 }
 
 function rotuloEvento(tipo) {
@@ -99,8 +158,4 @@ function rotuloEvento(tipo) {
     no_response: 'Sem resposta',
   };
   return mapa[tipo] ?? tipo;
-}
-
-function truncar(s, max) {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }

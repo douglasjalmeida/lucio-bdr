@@ -47,7 +47,7 @@ import {
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
-import { getSnapshotTrafego, getFunilBruno, getAtividadeBruno } from './dashboard-tabs.js';
+import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard } from './dashboard-tabs.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -184,8 +184,8 @@ app.get('/api/trafego', exigirAuth, async (_req, res) => {
 app.get('/api/bruno', exigirAuth, async (_req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
   try {
-    const [funil, atividade] = await Promise.all([getFunilBruno(), getAtividadeBruno()]);
-    res.json({ ok: true, funil, atividade });
+    const [funil, painel] = await Promise.all([getFunilBruno(), getBrunoDashboard()]);
+    res.json({ ok: true, funil, ...painel });
   } catch (err) {
     console.error('[bridge] erro /api/bruno:', err);
     res.status(500).json({ ok: false, erro: err.message });

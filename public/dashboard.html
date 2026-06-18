@@ -998,20 +998,36 @@ function renderTrafego(s) {
 }
 
 // ── Bruno ──
+const BRUNO_STAGE_LABEL = {
+  novo: 'Novo', aguardando_followup: 'Aguardando follow-up', qualificado: 'Qualificado',
+  handoff: 'Handoff', no_response: 'Sem resposta', devolvido_bot: 'Devolvido ao bot', encerrado: 'Encerrado',
+};
+const BRUNO_STAGE_COR = {
+  novo: '#94a3b8', aguardando_followup: '#fbbf24', qualificado: '#4ea1ff',
+  handoff: '#a78bfa', no_response: '#f87171', devolvido_bot: '#6b7488', encerrado: '#6b7488',
+};
+const stLabel = s => BRUNO_STAGE_LABEL[s] || s;
+const stCor = s => BRUNO_STAGE_COR[s] || '#6b7488';
+function stBadge(s) {
+  const c = stCor(s);
+  return `<span class="badge" style="color:${c};background:${c}1f;border-color:${c}55">${escapeHtml(stLabel(s))}</span>`;
+}
+
 async function carregarBruno() {
   const box = document.getElementById('bruno-conteudo');
   try {
     const r = await fetch(api('/api/bruno'), fetchOpts);
     const j = await r.json();
     if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte do Bruno indisponível')}</div>`; return; }
-    renderBruno(j.funil, j.atividade);
+    renderBruno(j);
     marcarUpdate();
   } catch (e) {
     box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
   }
 }
-function renderBruno(f, ativ) {
+function renderBruno(d) {
   const box = document.getElementById('bruno-conteudo');
+  const f = d.funil || {};
   const kpis = [
     { label: 'Leads', valor: num(f.leads), icon: ICONS.users, cls: '' },
     { label: 'Qualificados', valor: num(f.qualificados), icon: ICONS.badge, cls: 'green' },
@@ -1020,15 +1036,67 @@ function renderBruno(f, ativ) {
     { label: 'Follow-ups enviados', valor: num(f.followupsEnviados), icon: ICONS.send, cls: '' },
     { label: 'Sem resposta', valor: num(f.semResposta), icon: ICONS.msgoff, cls: f.semResposta > 0 ? 'red' : '' },
   ];
-  const linhas = (ativ || []).map(a => `<div class="atividade-row">
-    <div class="atividade-tempo mono">${tempoRelativo(a.quando)}</div>
-    <div><div class="atividade-resumo">${escapeHtml(a.resumo)}</div><div class="atividade-tipo">${escapeHtml(a.tipo)}</div></div>
-  </div>`).join('');
+
+  const dist = d.distribuicao || [];
+  const maxN = Math.max(...dist.map(x => x.n), 1);
+  const distRows = dist.map(x => {
+    const c = stCor(x.stage);
+    return `<div class="funil-row">
+      <span>${stBadge(x.stage)}</span>
+      <div class="barra-wrap"><div class="barra" style="width:${(x.n / maxN) * 100}%;background:linear-gradient(90deg,${c},${c}aa)"></div></div>
+      <span class="qtd mono">${x.n}</span>
+      <span class="tempo mono">~${formatarMs(x.tempo_medio_ms)}</span>
+    </div>`;
+  }).join('');
+
+  const leads = d.leads || [];
+  const leadRows = leads.map(l => {
+    const timeline = (l.eventos || []).map(e =>
+      `<li><span class="ts">${formatarData(e.em)}</span> — <strong>${escapeHtml(e.resumo)}</strong></li>`
+    ).join('');
+    return `<tr>
+      <td>
+        <div class="nome">${escapeHtml(l.nome || '—')}</div>
+        ${l.empresa ? `<div class="empresa">${escapeHtml(l.empresa)}</div>` : ''}
+      </td>
+      <td class="mono telefone">${escapeHtml(l.telefone || '')}</td>
+      <td>${stBadge(l.stage)}</td>
+      <td class="mono tempo-cell">${formatarMs(l.tempo_no_estagio_ms)}</td>
+      <td>${(l.eventos && l.eventos.length) ? `<details><summary>${l.eventos.length}</summary><div class="timeline"><ol>${timeline}</ol></div></details>` : '<span class="tempo">—</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  const msgs = d.mensagens || [];
+  const msgRows = msgs.map(m => {
+    const toque = m.toque ? `<span class="passo-tag">toque ${m.toque}</span>` : '';
+    return `<tr>
+      <td class="mono tempo-cell" style="white-space:nowrap">${formatarData(m.enviada_em)}</td>
+      <td>
+        <div class="nome">${escapeHtml(m.nome || '—')}</div>
+        <div class="telefone mono">${escapeHtml(m.telefone || '')}</div>
+      </td>
+      <td><span class="autor-badge ia">Bruno</span>${toque ? '<br>' + toque : ''}</td>
+      <td><div class="msg-texto">${escapeHtml(m.texto)}</div></td>
+    </tr>`;
+  }).join('');
+
   box.innerHTML = `
     <div class="kpis">${kpis.map(kpiCard).join('')}</div>
     <div class="secao">
-      <div class="secao-head"><h2><span class="accent"></span>Atividade recente</h2><span class="hint">eventos + mensagens · mais recentes primeiro</span></div>
-      ${(ativ && ativ.length) ? `<div class="atividade">${linhas}</div>` : '<div class="vazio">Sem atividade ainda.</div>'}
+      <div class="secao-head"><h2><span class="accent"></span>Distribuição por etapa</h2><span class="hint">leads por etapa · tempo médio parado (SLA)</span></div>
+      ${dist.length ? `<div class="funil">${distRows}</div>` : '<div class="vazio">Sem leads no funil.</div>'}
+    </div>
+    <div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Leads no funil</h2><span class="hint">ordenado por tempo na etapa atual — mais parado primeiro</span></div>
+      ${leads.length ? `<div class="tabela-wrap"><table>
+        <thead><tr><th>Lead</th><th>Telefone</th><th>Etapa</th><th>Tempo na etapa</th><th>Histórico</th></tr></thead>
+        <tbody>${leadRows}</tbody></table></div>` : '<div class="vazio">Sem leads no funil.</div>'}
+    </div>
+    <div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Mensagens enviadas</h2><span class="hint">toques do Bruno · mais recentes primeiro</span></div>
+      ${msgs.length ? `<div class="tabela-wrap"><table>
+        <thead><tr><th>Quando</th><th>Lead</th><th>Autor</th><th>Mensagem</th></tr></thead>
+        <tbody>${msgRows}</tbody></table></div>` : '<div class="vazio">Nenhuma mensagem enviada.</div>'}
     </div>`;
 }
 
