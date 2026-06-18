@@ -1,0 +1,11 @@
+
+# === git-crypt: segredos cifrados (gerado por git-crypt-setup.sh) ===
+.env       filter=git-crypt diff=git-crypt
+*.env      filter=git-crypt diff=git-crypt
+.env.*     filter=git-crypt diff=git-crypt
+# exceções: exemplos/templates NÃO são cifrados (última regra vence)
+.env.example  !filter !diff
+.env.sample   !filter !diff
+*.env.example !filter !diff
+*.example     !filter !diff
+*.sample      !filter !diff
