@@ -54,9 +54,16 @@ export async function getFunilBruno() {
 // Ordem canônica do funil do Bruno (inbound). Stages fora dessa lista entram no
 // fim, na ordem que aparecerem.
 const BRUNO_STAGES = [
-  'novo', 'aguardando_followup', 'qualificado', 'handoff',
+  'novo', 'aguardando_followup', 'reengajando', 'qualificado', 'handoff',
   'no_response', 'devolvido_bot', 'encerrado',
 ];
+
+const BRUNO_STAGE_LABEL = {
+  novo: 'Novo', aguardando_followup: 'Aguardando follow-up', reengajando: 'Reengajando',
+  qualificado: 'Qualificado', handoff: 'Handoff', no_response: 'Sem resposta',
+  devolvido_bot: 'Devolvido ao bot', encerrado: 'Encerrado',
+};
+const stageLabel = (s) => (s ? BRUNO_STAGE_LABEL[s] || s : null);
 
 // Dados ricos da aba Bruno (espelham o painel do Lúcio):
 // - distribuicao: leads por etapa + tempo médio parado (SLA)
@@ -68,13 +75,17 @@ const BRUNO_STAGES = [
 // Lúcio; a timeline detalhada vem de bruno_eventos.
 export async function getBrunoDashboard() {
   const agora = Date.now();
-  const [leadsRes, eventosRes, msgsRes] = await Promise.all([
+  const [leadsRes, eventosRes, transRes, msgsRes] = await Promise.all([
     supabase
       .from('bruno_leads')
       .select('id, nome, empresa, telefone, stage, criado_em, atualizado_em'),
     supabase
       .from('bruno_eventos')
       .select('lead_id, tipo, criado_em')
+      .order('criado_em', { ascending: true }),
+    supabase
+      .from('bruno_transicoes')
+      .select('lead_id, etapa_de, etapa_para, criado_em')
       .order('criado_em', { ascending: true }),
     supabase
       .from('bruno_mensagens')
@@ -85,23 +96,46 @@ export async function getBrunoDashboard() {
   ]);
   if (leadsRes.error) throw leadsRes.error;
   if (eventosRes.error) throw eventosRes.error;
+  if (transRes.error) throw transRes.error;
   if (msgsRes.error) throw msgsRes.error;
 
   const leads = leadsRes.data ?? [];
   const eventos = eventosRes.data ?? [];
+  const transicoes = transRes.data ?? [];
   const msgs = msgsRes.data ?? [];
 
-  // Timeline de eventos por lead.
+  // Timeline de eventos por lead (fallback pros leads sem transições).
   const evPorLead = new Map();
   for (const e of eventos) {
     if (!evPorLead.has(e.lead_id)) evPorLead.set(e.lead_id, []);
-    evPorLead.get(e.lead_id).push({ tipo: e.tipo, resumo: rotuloEvento(e.tipo), em: e.criado_em });
+    evPorLead.get(e.lead_id).push({ resumo: rotuloEvento(e.tipo), em: e.criado_em });
+  }
+
+  // Transições de etapa por lead (verdade do "entrou na etapa X às Y").
+  const transPorLead = new Map();
+  for (const t of transicoes) {
+    if (!transPorLead.has(t.lead_id)) transPorLead.set(t.lead_id, []);
+    transPorLead.get(t.lead_id).push(t);
   }
 
   // Leads detalhados, ordenados por tempo na etapa (mais parado primeiro = SLA).
+  // Quando há transições (leads novos), o tempo na etapa e a timeline vêm delas
+  // (precisas); senão cai no fallback atualizado_em + eventos (leads antigos).
   const leadsDetalhe = leads
     .map((l) => {
-      const entrou = l.atualizado_em || l.criado_em;
+      const trs = transPorLead.get(l.id) || [];
+      let entrou;
+      let timeline;
+      if (trs.length) {
+        entrou = trs[trs.length - 1].criado_em;
+        timeline = trs.map((t) => ({
+          resumo: `${stageLabel(t.etapa_de) || 'entrada'} → ${stageLabel(t.etapa_para)}`,
+          em: t.criado_em,
+        }));
+      } else {
+        entrou = l.atualizado_em || l.criado_em;
+        timeline = evPorLead.get(l.id) ?? [];
+      }
       return {
         nome: l.nome,
         empresa: l.empresa,
@@ -109,7 +143,7 @@ export async function getBrunoDashboard() {
         stage: l.stage,
         entrou_em: entrou,
         tempo_no_estagio_ms: agora - new Date(entrou).getTime(),
-        eventos: evPorLead.get(l.id) ?? [],
+        eventos: timeline,
       };
     })
     .sort((a, b) => b.tempo_no_estagio_ms - a.tempo_no_estagio_ms);

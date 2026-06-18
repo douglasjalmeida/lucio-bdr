@@ -999,11 +999,12 @@ function renderTrafego(s) {
 
 // ── Bruno ──
 const BRUNO_STAGE_LABEL = {
-  novo: 'Novo', aguardando_followup: 'Aguardando follow-up', qualificado: 'Qualificado',
-  handoff: 'Handoff', no_response: 'Sem resposta', devolvido_bot: 'Devolvido ao bot', encerrado: 'Encerrado',
+  novo: 'Novo', aguardando_followup: 'Aguardando follow-up', reengajando: 'Reengajando',
+  qualificado: 'Qualificado', handoff: 'Handoff', no_response: 'Sem resposta',
+  devolvido_bot: 'Devolvido ao bot', encerrado: 'Encerrado',
 };
 const BRUNO_STAGE_COR = {
-  novo: '#94a3b8', aguardando_followup: '#fbbf24', qualificado: '#4ea1ff',
+  novo: '#94a3b8', aguardando_followup: '#fbbf24', reengajando: '#2dd4bf', qualificado: '#4ea1ff',
   handoff: '#a78bfa', no_response: '#f87171', devolvido_bot: '#6b7488', encerrado: '#6b7488',
 };
 const stLabel = s => BRUNO_STAGE_LABEL[s] || s;
