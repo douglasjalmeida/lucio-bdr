@@ -48,6 +48,8 @@ import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
 import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard } from './dashboard-tabs.js';
+import { listarTemperaturas } from './temperatura-analyzer.js';
+import { construirEmailPayload, enviarEmailResend } from './resend-client.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -188,6 +190,21 @@ app.get('/api/bruno', exigirAuth, async (_req, res) => {
     res.json({ ok: true, funil, ...painel });
   } catch (err) {
     console.error('[bridge] erro /api/bruno:', err);
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+// ── Aba Temperatura: leads ordenados por score (mais quente no topo) ──
+// Read-only: lê a última análise persistida por lead (eventos tipo=lead_temperatura)
+// e devolve ordenado por score desc. NUNCA dispara análise (isso é on-demand via
+// scripts/analisar-temperatura.js, 1 lead por vez, fora do request HTTP).
+app.get('/api/leads-temperatura', exigirAuth, async (_req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const leads = await listarTemperaturas();
+    res.json({ ok: true, leads });
+  } catch (err) {
+    console.error('[bridge] erro /api/leads-temperatura:', err);
     res.status(500).json({ ok: false, erro: err.message });
   }
 });
@@ -558,9 +575,30 @@ async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
         resultados.push({ agendamentoId: p.agendamentoId, status: 'sem_texto' });
         continue;
       }
+
+      // Email de campanha (Resend) — mesmo gatilho do toque WhatsApp, mesmo lead.
+      // Build puro (sem rede). O envio respeita o dryRun do batch + RESEND_DRY_RUN.
+      const emailPayload = construirEmailPayload({ lead: p.lead, texto, passo: p.passo });
+
       if (dryRun) {
-        resultados.push({ agendamentoId: p.agendamentoId, status: 'dry', texto });
+        // Mostra o que email E WhatsApp fariam, sem disparar nada.
+        const emailDry = await enviarEmailResend(emailPayload, { dryRun: true });
+        resultados.push({ agendamentoId: p.agendamentoId, status: 'dry', texto, email: emailDry });
         continue;
+      }
+
+      // Email é INDEPENDENTE do WhatsApp (canais paralelos, mesmo gatilho):
+      // disparado ANTES do webhook pra não ser cortado pelo `continue` de falha
+      // do n8n. enviarEmailResend nunca lança; o try/catch é cinto-e-suspensório.
+      try {
+        const emailRes = await enviarEmailResend(emailPayload, { dryRun: false });
+        // Audita só envios reais (ok/erro) — skip/dry não viram evento (evita ruído).
+        if (emailRes?.status === 'enviado' || emailRes?.status === 'erro') {
+          await registrarEvento(p.lead.id, emailRes.ok ? 'email_enviado' : 'email_falha',
+            { passo: p.passo, ...emailRes }).catch(() => {});
+        }
+      } catch (err) {
+        console.error(`[bridge] email Resend falhou (segue WhatsApp) lead ${p.lead.id}:`, err.message);
       }
 
       let uazapiCampaignId = null;

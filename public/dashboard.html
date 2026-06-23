@@ -506,6 +506,10 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
     Lúcio BDR
   </button>
+  <button class="tab-btn" data-tab="temperatura">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+    Temperatura
+  </button>
 </nav>
 
 <div id="tab-lucio" class="tab-panel">
@@ -612,6 +616,26 @@
 <main id="tab-bruno" class="tab-panel" hidden>
   <div id="bruno-conteudo">
     <div class="vazio">Carregando Bruno…</div>
+  </div>
+</main>
+
+<!-- ════════════ Aba Temperatura ════════════ -->
+<style>
+  #tab-temperatura .temp-badge { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; letter-spacing:.02em; color:var(--c); background:color-mix(in srgb, var(--c) 16%, transparent);
+    border:1px solid color-mix(in srgb, var(--c) 40%, transparent); }
+  #tab-temperatura .temp-badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--c); }
+  #tab-temperatura .score { font-size:11px; color:var(--muted); margin-top:3px; }
+  #tab-temperatura .just { font-size:12px; color:var(--muted); max-width:34ch; line-height:1.45; }
+  #tab-temperatura td { vertical-align:top; }
+  #tab-temperatura .wa-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:8px; white-space:nowrap;
+    font-size:12px; font-weight:600; text-decoration:none; color:#fff; background:#22c55e; transition:filter .15s; }
+  #tab-temperatura .wa-btn:hover { filter:brightness(1.1); }
+  #tab-temperatura .wa-btn svg { width:14px; height:14px; }
+</style>
+<main id="tab-temperatura" class="tab-panel" hidden>
+  <div id="temperatura-conteudo">
+    <div class="vazio">Carregando temperatura…</div>
   </div>
 </main>
 
@@ -1101,9 +1125,66 @@ function renderBruno(d) {
     </div>`;
 }
 
+// ── Aba Temperatura ─────────────────────────────────────────
+const TEMP_COR = { QUENTE: '#ef4444', MORNO: '#f59e0b', FRIO: '#3b82f6' };
+const WA_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm5.8 14.16c-.24.68-1.4 1.3-1.94 1.34-.5.05-.96.24-3.23-.67-2.73-1.08-4.45-3.85-4.58-4.03-.13-.18-1.1-1.46-1.1-2.79s.7-1.98.94-2.25c.24-.27.53-.34.7-.34l.5.01c.16.01.38-.06.59.45.24.58.81 2 .88 2.15.07.14.12.31.02.49-.09.18-.14.29-.27.45-.13.16-.28.36-.4.48-.13.13-.27.28-.12.55.16.27.7 1.15 1.5 1.86 1.04.93 1.91 1.21 2.18 1.35.27.13.43.11.59-.07.16-.18.68-.79.86-1.06.18-.27.36-.22.6-.13.25.09 1.57.74 1.84.88.27.13.45.2.52.31.07.11.07.64-.17 1.32Z"/></svg>';
+function tempBadge(t) {
+  const cor = TEMP_COR[t] || '#64748b';
+  return `<span class="temp-badge" style="--c:${cor}">${escapeHtml(t || '—')}</span>`;
+}
+async function carregarTemperatura() {
+  const box = document.getElementById('temperatura-conteudo');
+  try {
+    const r = await fetch(api('/api/leads-temperatura'), fetchOpts);
+    const j = await r.json();
+    if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte indisponível')}</div>`; return; }
+    const leads = j.leads || [];
+    if (!leads.length) {
+      box.innerHTML = '<div class="vazio">Nenhum lead analisado ainda. Rode <code>node scripts/analisar-temperatura.js</code> pra popular.</div>';
+      marcarUpdate();
+      return;
+    }
+    const rows = leads.map(l => {
+      const dig = String(l.telefone || '').replace(/\D/g, '');
+      const wa = dig
+        ? `<a class="wa-btn" href="https://wa.me/${dig}" target="_blank" rel="noopener">${WA_ICON}WhatsApp</a>`
+        : '<span class="tempo">—</span>';
+      return `<tr>
+        <td>
+          <div class="nome">${escapeHtml(l.nome || '—')}</div>
+          ${l.empresa ? `<div class="empresa">${escapeHtml(l.empresa)}</div>` : ''}
+          <div class="telefone mono">${escapeHtml(l.telefone || '')}</div>
+        </td>
+        <td>${tempBadge(l.temperatura)}<div class="score mono">score ${l.score}</div></td>
+        <td>${escapeHtml(l.classificacao_icp || '—')}</td>
+        <td>${escapeHtml(l.categoria || '—')}</td>
+        <td><span class="passo-tag">${escapeHtml(l.estagio_cadencia || '—')}</span></td>
+        <td><div class="just">${escapeHtml(l.justificativa || '')}</div></td>
+        <td>${wa}</td>
+      </tr>`;
+    }).join('');
+    box.innerHTML = `<div class="secao">
+      <div class="secao-head">
+        <h2><span class="accent"></span>Temperatura dos leads</h2>
+        <span class="hint">${leads.length} leads · mais quente primeiro · última análise persistida</span>
+      </div>
+      <div class="tabela-wrap"><table>
+        <thead><tr>
+          <th>Lead</th><th>Temperatura</th><th>ICP</th><th>Categoria</th><th>Estágio</th><th>Justificativa</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+    marcarUpdate();
+  } catch (e) {
+    box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
 function refreshAtivo() {
   if (tabAtiva === 'trafego') carregarTrafego();
   else if (tabAtiva === 'bruno') carregarBruno();
+  else if (tabAtiva === 'temperatura') carregarTemperatura();
   else carregar();
 }
 
