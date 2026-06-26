@@ -493,6 +493,36 @@
   </div>
 </header>
 
+<style>
+  .sla-card { max-width:1240px; margin:18px auto 0; padding:14px 20px; display:flex; align-items:center;
+    justify-content:space-between; gap:20px; background:var(--panel); border:1px solid var(--border);
+    border-left:3px solid var(--amber); border-radius:14px; backdrop-filter:blur(8px); }
+  .sla-head { display:flex; align-items:center; gap:10px; }
+  .sla-dot { width:9px; height:9px; border-radius:50%; background:var(--amber); box-shadow:0 0 10px var(--amber); flex:none; }
+  .sla-titulo { font-size:13px; color:var(--text-2); font-weight:600; }
+  .sla-sub { font-size:11px; color:var(--muted); margin-top:1px; }
+  .sla-nums { display:flex; gap:28px; }
+  .sla-num { display:flex; flex-direction:column; align-items:flex-end; line-height:1.15; }
+  .sla-num b { font-size:22px; color:var(--text); font-variant-numeric:tabular-nums; }
+  .sla-num.alvo b { color:var(--amber); }
+  .sla-num span { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; }
+  @media (max-width:560px){ .sla-card{ flex-direction:column; align-items:flex-start; gap:12px; } .sla-nums{ gap:22px; } }
+</style>
+<section id="sla-card" class="sla-card" title="Leads qualificados que passaram de 2h sem atendimento humano e receberam lembrete automático">
+  <div class="sla-head">
+    <span class="sla-dot"></span>
+    <div>
+      <div class="sla-titulo">Leads estourados — SLA 2h → lembrete</div>
+      <div class="sla-sub">qualificados sem 1ª resposta humana em 2h que viraram alerta</div>
+    </div>
+  </div>
+  <div class="sla-nums">
+    <div class="sla-num alvo"><b id="sla-hoje">–</b><span>hoje</span></div>
+    <div class="sla-num"><b id="sla-7d">–</b><span>7 dias</span></div>
+    <div class="sla-num"><b id="sla-total">–</b><span>total</span></div>
+  </div>
+</section>
+
 <nav class="tabs">
   <button class="tab-btn" data-tab="trafego">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
@@ -1181,7 +1211,20 @@ async function carregarTemperatura() {
   }
 }
 
+// Card SLA fixo (independe da aba) — não-crítico: falha em silêncio.
+async function carregarSla() {
+  try {
+    const r = await fetch(api('/api/sla'), fetchOpts);
+    const j = await r.json();
+    if (!j.ok || !j.sla) return;
+    document.getElementById('sla-hoje').textContent = num(j.sla.hoje);
+    document.getElementById('sla-7d').textContent = num(j.sla.ultimos7d);
+    document.getElementById('sla-total').textContent = num(j.sla.total);
+  } catch { /* card secundário: ignora erro de rede */ }
+}
+
 function refreshAtivo() {
+  carregarSla();
   if (tabAtiva === 'trafego') carregarTrafego();
   else if (tabAtiva === 'bruno') carregarBruno();
   else if (tabAtiva === 'temperatura') carregarTemperatura();
@@ -1214,6 +1257,7 @@ setInterval(() => {
 }, 1000);
 
 (async () => {
+  carregarSla();
   await carregarCadencias();
   await carregar();
 })();

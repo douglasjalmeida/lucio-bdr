@@ -26,6 +26,40 @@ export async function getSnapshotTrafego() {
   return { ...data, criativos };
 }
 
+// ─── SLA 2h (leads qualificados que estouraram e viraram lembrete) ──────────
+// Conta `sla_alertas` (espelho da datatable n8n sla_leads_notificados) por
+// janela: hoje (00:00 America/Sao_Paulo), últimos 7 dias e total acumulado.
+// Fonte = o que o WF de SLA realmente notificou (não recalcula do Chatwoot).
+function inicioDoDiaSaoPauloISO(agora = new Date()) {
+  // BR é UTC-3 fixo (sem horário de verão desde 2019). 00:00 BR = 03:00 UTC.
+  const br = new Date(agora.getTime() - 3 * 3600 * 1000);
+  const y = br.getUTCFullYear();
+  const m = String(br.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(br.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}T03:00:00.000Z`;
+}
+
+export async function getSlaAlertas() {
+  const agora = new Date();
+  const inicioHoje = inicioDoDiaSaoPauloISO(agora);
+  const seteDias = new Date(agora.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+
+  const contar = async (desde) => {
+    let q = supabase.from('sla_alertas').select('*', { count: 'exact', head: true });
+    if (desde) q = q.gte('notificado_em', desde);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count ?? 0;
+  };
+
+  const [hoje, ultimos7d, total] = await Promise.all([
+    contar(inicioHoje),
+    contar(seteDias),
+    contar(null),
+  ]);
+  return { hoje, ultimos7d, total };
+}
+
 // ─── Bruno (funil inbound) ──────────────────────────────────────────────────
 // Funil derivado de eventos (verdade do que aconteceu), via count exato sem
 // trazer linha.

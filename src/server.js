@@ -47,7 +47,7 @@ import {
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
-import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard } from './dashboard-tabs.js';
+import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard, getSlaAlertas } from './dashboard-tabs.js';
 import { listarTemperaturas } from './temperatura-analyzer.js';
 import { construirEmailPayload, enviarEmailResend } from './resend-client.js';
 import path from 'node:path';
@@ -178,6 +178,19 @@ app.get('/api/trafego', exigirAuth, async (_req, res) => {
     res.json({ ok: true, snapshot });
   } catch (err) {
     console.error('[bridge] erro /api/trafego:', err);
+    res.status(500).json({ ok: false, erro: err.message });
+  }
+});
+
+// ── Card SLA: leads qualificados que estouraram 2h e viraram lembrete ──
+// Conta sla_alertas (espelho da datatable n8n) por hoje / 7d / total.
+app.get('/api/sla', exigirAuth, async (_req, res) => {
+  if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  try {
+    const sla = await getSlaAlertas();
+    res.json({ ok: true, sla });
+  } catch (err) {
+    console.error('[bridge] erro /api/sla:', err);
     res.status(500).json({ ok: false, erro: err.message });
   }
 });
