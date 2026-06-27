@@ -47,6 +47,7 @@ import {
 import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
+import { resolverJanela } from './periodo.js';
 import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard, getSlaAlertas } from './dashboard-tabs.js';
 import { listarTemperaturas } from './temperatura-analyzer.js';
 import { construirEmailPayload, enviarEmailResend } from './resend-client.js';
@@ -103,9 +104,11 @@ app.get('/dashboard', exigirAuth, (req, res) => {
 app.get('/api/metrics', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
   const periodo = req.query.periodo || '7d';
+  const de = req.query.de || null;
+  const ate = req.query.ate || null;
   const cadenciaId = req.query.cadencia ? parseInt(req.query.cadencia, 10) : null;
   try {
-    const m = await montarMetricas({ periodo, cadenciaId });
+    const m = await montarMetricas({ periodo, de, ate, cadenciaId });
     res.json({ ok: true, ...m });
   } catch (err) {
     console.error('[bridge] erro /api/metrics:', err);
@@ -127,15 +130,9 @@ app.get('/api/mensagens', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
   const cadenciaId = req.query.cadencia ? parseInt(req.query.cadencia, 10) : null;
   const limit = Math.min(parseInt(req.query.limit || '100', 10), 300);
-  const desde = (() => {
-    const p = req.query.periodo || '7d';
-    const agora = Date.now();
-    const dias = { hoje: null, '7d': 7, '30d': 30, '3m': 90, '6m': 180 }[p];
-    if (p === 'hoje') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
-    return dias ? new Date(agora - dias * 86400_000).toISOString() : null;
-  })();
+  const janela = resolverJanela({ periodo: req.query.periodo || '7d', de: req.query.de, ate: req.query.ate });
   try {
-    const mensagens = await listarMensagensEnviadas({ desde, cadenciaId, limit });
+    const mensagens = await listarMensagensEnviadas({ desde: janela.desde, ate: janela.ate, cadenciaId, limit });
     res.json({ ok: true, mensagens });
   } catch (err) {
     console.error('[bridge] erro /api/mensagens:', err);
@@ -171,11 +168,12 @@ app.post('/api/outbound-estado', exigirAuth, async (req, res) => {
 
 // ── Aba Tráfego: snapshot mais recente da Meta (tabela trafego_snapshots) ──
 // snapshot:null => "sem dado ainda" (estado, não erro). Erro de fonte => 500.
-app.get('/api/trafego', exigirAuth, async (_req, res) => {
+app.get('/api/trafego', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  const janela = resolverJanela({ periodo: req.query.periodo || '7d', de: req.query.de, ate: req.query.ate });
   try {
-    const snapshot = await getSnapshotTrafego();
-    res.json({ ok: true, snapshot });
+    const snapshot = await getSnapshotTrafego({ desde: janela.desde, ate: janela.ate });
+    res.json({ ok: true, snapshot, janela });
   } catch (err) {
     console.error('[bridge] erro /api/trafego:', err);
     res.status(500).json({ ok: false, erro: err.message });
@@ -196,10 +194,14 @@ app.get('/api/sla', exigirAuth, async (_req, res) => {
 });
 
 // ── Aba Bruno: funil inbound + atividade recente (tabelas bruno_*) ──
-app.get('/api/bruno', exigirAuth, async (_req, res) => {
+app.get('/api/bruno', exigirAuth, async (req, res) => {
   if (!supabaseEnabled()) return res.status(503).json({ ok: false, erro: 'supabase desconfigurado' });
+  const janela = resolverJanela({ periodo: req.query.periodo || '7d', de: req.query.de, ate: req.query.ate });
   try {
-    const [funil, painel] = await Promise.all([getFunilBruno(), getBrunoDashboard()]);
+    const [funil, painel] = await Promise.all([
+      getFunilBruno({ desde: janela.desde, ate: janela.ate }),
+      getBrunoDashboard({ desde: janela.desde, ate: janela.ate }),
+    ]);
     res.json({ ok: true, funil, ...painel });
   } catch (err) {
     console.error('[bridge] erro /api/bruno:', err);

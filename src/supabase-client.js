@@ -183,13 +183,14 @@ export async function contarTransicoesPorEtapa({ desde, ate, cadenciaId = null }
 }
 
 // Lista de leads ativos com timeline de transições — pra tabela detalhada.
-export async function transicoesPorLead({ desde, cadenciaId = null, limit = 200 } = {}) {
+export async function transicoesPorLead({ desde, ate = null, cadenciaId = null, limit = 200 } = {}) {
   ensure();
   let q = supabase
     .from('transicoes_pipeline')
     .select('id, lead_id, etapa_de, etapa_para, origem, criado_em, cadencia_id')
     .order('criado_em', { ascending: true });
   if (desde) q = q.gte('criado_em', desde);
+  if (ate) q = q.lte('criado_em', ate);
   if (cadenciaId) q = q.eq('cadencia_id', cadenciaId);
   const { data, error } = await q;
   if (error) throw error;
@@ -279,7 +280,7 @@ export async function proximoCloserRR(closerIds) {
 // Lista mensagens que saíram pro lead (direcao='out'): toques outbound da IA,
 // respostas inbound da IA e mensagens do closer humano. Join com leads pra nome/
 // empresa/telefone e pra permitir filtro por cadência.
-export async function listarMensagensEnviadas({ desde = null, cadenciaId = null, limit = 100 } = {}) {
+export async function listarMensagensEnviadas({ desde = null, ate = null, cadenciaId = null, limit = 100 } = {}) {
   ensure();
   let q = supabase
     .from('mensagens')
@@ -288,6 +289,7 @@ export async function listarMensagensEnviadas({ desde = null, cadenciaId = null,
     .order('enviada_em', { ascending: false })
     .limit(limit);
   if (desde) q = q.gte('enviada_em', desde);
+  if (ate) q = q.lte('enviada_em', ate);
   if (cadenciaId) q = q.eq('leads.cadencia_id', cadenciaId);
   const { data, error } = await q;
   if (error) throw error;

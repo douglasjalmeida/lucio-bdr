@@ -542,22 +542,59 @@
   </button>
 </nav>
 
+<!-- ════════════ Período (GLOBAL — filtra TODAS as abas) ════════════ -->
+<style>
+  .periodo-global { display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    max-width:1400px; margin:0 auto; width:100%; padding:18px 32px 4px; }
+  .periodo-custom { display:flex; align-items:center; gap:8px; }
+  .data-input { background:var(--panel); color:var(--text); border:1px solid var(--border);
+    border-radius:9px; padding:7px 10px; font-family:inherit; font-size:13px; color-scheme:dark; }
+  .data-input:hover { border-color:var(--border-hi); }
+  .data-input:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(78,161,255,0.15); }
+  .ate-sep { color:var(--muted); font-size:12px; }
+  .btn-aplicar { background:linear-gradient(135deg,var(--text),#d8def0); color:#07090f;
+    border:none; border-radius:9px; padding:8px 16px; font-family:inherit; font-weight:600;
+    font-size:13px; cursor:pointer; transition:filter .15s; }
+  .btn-aplicar:hover { filter:brightness(1.05); }
+  .periodo-ativo { font-size:12px; color:var(--muted); letter-spacing:0.02em; margin-left:auto; }
+  .periodo-ativo b { color:var(--text-2); font-weight:600; }
+  /* Ranking região (Tráfego) + potência (Bruno) reaproveitam .funil/.funil-row */
+  .regiao-nome { font-size:13px; color:var(--text-2); font-weight:500; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; max-width:22ch; }
+  .potencia-destaque { display:inline-flex; flex-direction:column; gap:3px; padding:14px 22px;
+    background:linear-gradient(135deg, rgba(78,161,255,0.14), rgba(78,161,255,0.04));
+    border:1px solid color-mix(in srgb, var(--blue) 32%, transparent); border-radius:14px; }
+  .pd-label { font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
+  .pd-valor { font-size:30px; font-weight:600; color:var(--text); line-height:1.1; }
+  .pd-sub { font-size:12px; color:var(--text-2); }
+  @media (max-width:560px){ .periodo-global{ padding-left:18px; padding-right:18px; } .periodo-ativo{ margin-left:0; } }
+</style>
+<div class="periodo-global">
+  <div class="filtro-grupo">
+    <label>Período</label>
+    <div class="pill-group" id="periodo-grupo">
+      <span class="pill-slider" id="pill-slider"></span>
+      <button data-p="24h">24h</button>
+      <button data-p="7d" class="active">7 dias</button>
+      <button data-p="15d">15 dias</button>
+      <button data-p="30d">30 dias</button>
+      <button data-p="custom">Personalizado</button>
+    </div>
+  </div>
+  <div class="periodo-custom" id="periodo-custom" hidden>
+    <input type="date" id="custom-de" class="data-input" aria-label="Data inicial">
+    <span class="ate-sep">até</span>
+    <input type="date" id="custom-ate" class="data-input" aria-label="Data final">
+    <button class="btn-aplicar" id="custom-aplicar">Aplicar</button>
+  </div>
+  <span class="periodo-ativo" id="periodo-ativo"></span>
+</div>
+
 <div id="tab-lucio" class="tab-panel">
 <div class="filtros">
   <div class="filtro-grupo">
     <label>Cadência</label>
     <select id="cadencia-sel" class="seletor"><option value="">Todas</option></select>
-  </div>
-  <div class="filtro-grupo">
-    <label>Período</label>
-    <div class="pill-group" id="periodo-grupo">
-      <span class="pill-slider" id="pill-slider"></span>
-      <button data-p="hoje">Hoje</button>
-      <button data-p="7d" class="active">7 dias</button>
-      <button data-p="30d">30 dias</button>
-      <button data-p="3m">3 meses</button>
-      <button data-p="6m">6 meses</button>
-    </div>
   </div>
 </div>
 
@@ -672,11 +709,35 @@
 <script>
 let periodoAtual = '7d';
 let cadenciaAtual = '';
+let customDe = '';
+let customAte = '';
 let countdown = 10;
 const RING_PERIM = 56.55; // 2 * PI * 9
 
 function api(p) { return p; }
 const fetchOpts = { credentials: 'include' };
+
+// ── Período global ─────────────────────────────────────────
+// Querystring única usada por TODAS as abas (metrics, mensagens, trafego, bruno).
+function qsPeriodo() {
+  if (periodoAtual === 'custom' && customDe) {
+    return `periodo=custom&de=${customDe}` + (customAte ? `&ate=${customAte}` : '');
+  }
+  return `periodo=${periodoAtual}`;
+}
+function ddmm(s) { return s ? s.split('-').reverse().join('/') : ''; }
+function rotuloPeriodo() {
+  switch (periodoAtual) {
+    case '24h': return 'últimas 24h';
+    case '15d': return 'últimos 15 dias';
+    case '30d': return 'últimos 30 dias';
+    case 'custom': return customDe ? `${ddmm(customDe)} a ${customAte ? ddmm(customAte) : 'hoje'}` : 'personalizado';
+    default: return 'últimos 7 dias';
+  }
+}
+function atualizarRotuloPeriodo() {
+  document.getElementById('periodo-ativo').innerHTML = `período: <b>${rotuloPeriodo()}</b>`;
+}
 
 function formatarMs(ms) {
   if (ms == null || isNaN(ms)) return '—';
@@ -798,7 +859,7 @@ document.getElementById('controle-botoes').addEventListener('click', e => {
 
 async function carregarMensagens() {
   try {
-    const qs = `?periodo=${periodoAtual}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
+    const qs = `?${qsPeriodo()}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
     const r = await fetch(api('/api/mensagens' + qs), fetchOpts);
     const j = await r.json();
     if (j.ok) renderMensagens(j.mensagens || []);
@@ -844,7 +905,7 @@ async function carregarCadencias() {
 
 async function carregar() {
   try {
-    const qs = `?periodo=${periodoAtual}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
+    const qs = `?${qsPeriodo()}` + (cadenciaAtual ? `&cadencia=${cadenciaAtual}` : '');
     const r = await fetch(api('/api/metrics' + qs), fetchOpts);
     const j = await r.json();
     if (!j.ok) {
@@ -937,11 +998,34 @@ window.addEventListener('resize', () => {
 
 document.getElementById('periodo-grupo').addEventListener('click', e => {
   if (e.target.tagName !== 'BUTTON') return;
+  const p = e.target.dataset.p;
   document.querySelectorAll('#periodo-grupo button').forEach(b => b.classList.remove('active'));
   e.target.classList.add('active');
   moverSlider(e.target);
-  periodoAtual = e.target.dataset.p;
-  carregar();
+
+  const customBox = document.getElementById('periodo-custom');
+  if (p === 'custom') {
+    customBox.hidden = false;
+    // Só refiltra quando houver datas (Aplicar). Se já tinha, reaplica agora.
+    if (customDe) { periodoAtual = 'custom'; atualizarRotuloPeriodo(); refreshAtivo(); }
+    return;
+  }
+  customBox.hidden = true;
+  periodoAtual = p;
+  atualizarRotuloPeriodo();
+  refreshAtivo();
+});
+
+document.getElementById('custom-aplicar').addEventListener('click', () => {
+  const de = document.getElementById('custom-de').value;
+  const ate = document.getElementById('custom-ate').value;
+  if (!de) { alert('Escolha a data inicial.'); return; }
+  if (ate && ate < de) { alert('A data final não pode ser antes da inicial.'); return; }
+  customDe = de;
+  customAte = ate;
+  periodoAtual = 'custom';
+  atualizarRotuloPeriodo();
+  refreshAtivo();
 });
 
 document.getElementById('cadencia-sel').addEventListener('change', e => {
@@ -989,7 +1073,7 @@ function piorCriativoId(cs) {
 async function carregarTrafego() {
   const box = document.getElementById('trafego-conteudo');
   try {
-    const r = await fetch(api('/api/trafego'), fetchOpts);
+    const r = await fetch(api('/api/trafego?' + qsPeriodo()), fetchOpts);
     const j = await r.json();
     if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte de tráfego indisponível')}</div>`; return; }
     renderTrafego(j.snapshot);
@@ -998,6 +1082,37 @@ async function carregarTrafego() {
     box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
   }
 }
+// Ranking "Conversões por região" (Incremento B). Lê s.por_regiao (jsonb).
+// Sem dado => estado vazio honesto (não inventa região).
+function renderRegioes(s) {
+  const regs = Array.isArray(s.por_regiao) ? s.por_regiao : [];
+  if (!regs.length) {
+    return `<div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Conversões por região</h2><span class="hint">de onde vêm as conversas</span></div>
+      <div class="vazio"><div>Sem dado de região neste snapshot</div>
+        <div style="font-size:12px;margin-top:6px">o snapshot ainda não traz o breakdown por região da Meta. Assim que o pipeline gravar <code>por_regiao</code>, o ranking aparece aqui.</div></div>
+    </div>`;
+  }
+  const ordenadas = [...regs].sort((a, b) => (b.conversas || 0) - (a.conversas || 0));
+  const maxN = Math.max(...ordenadas.map(r => r.conversas || 0), 1);
+  const algumProxy = ordenadas.some(r => r.proxy);
+  const rows = ordenadas.map(r => {
+    const n = r.conversas || 0;
+    const proxyTag = r.proxy ? ' <span class="passo-tag">proxy</span>' : '';
+    return `<div class="funil-row">
+      <span class="regiao-nome" title="${escapeHtml(r.regiao || '')}">${escapeHtml(r.regiao || '—')}${proxyTag}</span>
+      <div class="barra-wrap"><div class="barra" style="width:${(n / maxN) * 100}%;background:linear-gradient(90deg,var(--green),#22c55eaa)"></div></div>
+      <span class="qtd mono">${num(n)}</span>
+      <span class="tempo mono">${brl(r.cpl)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="secao">
+    <div class="secao-head"><h2><span class="accent"></span>Conversões por região</h2>
+      <span class="hint">conversas por região · CPL ao lado${algumProxy ? ' · (proxy: cliques)' : ''}</span></div>
+    <div class="funil">${rows}</div>
+  </div>`;
+}
+
 function renderTrafego(s) {
   const box = document.getElementById('trafego-conteudo');
   if (!s) {
@@ -1042,13 +1157,18 @@ function renderTrafego(s) {
       </div>
     </div>`;
   }).join('');
+  const cobertura = `${dataBR(s.janela_inicio)} a ${dataBR(s.janela_fim)}`;
+  const aviso = s.fora_da_janela
+    ? ` · <span style="color:var(--amber)">snapshot fora do período escolhido (cobre ${cobertura})</span>`
+    : '';
   box.innerHTML = `
-    <div class="trafego-meta">Janela ${dataBR(s.janela_inicio)} – ${dataBR(s.janela_fim)} · snapshot de ${formatarData(s.capturado_em)} · fonte ${escapeHtml(s.origem || 'mcp')}</div>
+    <div class="trafego-meta">Período coberto ${cobertura} · snapshot de ${formatarData(s.capturado_em)} · fonte ${escapeHtml(s.origem || 'mcp')}${aviso}</div>
     <div class="kpis">${kpis.map(kpiCard).join('')}</div>
     <div class="secao">
-      <div class="secao-head"><h2><span class="accent"></span>Criativos</h2><span class="hint">ordenados por CPL — melhor primeiro</span></div>
+      <div class="secao-head"><h2><span class="accent"></span>Criativos</h2><span class="hint">ordenados por CPL · melhor primeiro</span></div>
       ${criativos.length ? `<div class="criativos">${cards}</div>` : '<div class="vazio">Snapshot sem criativos.</div>'}
-    </div>`;
+    </div>
+    ${renderRegioes(s)}`;
 }
 
 // ── Bruno ──
@@ -1071,7 +1191,7 @@ function stBadge(s) {
 async function carregarBruno() {
   const box = document.getElementById('bruno-conteudo');
   try {
-    const r = await fetch(api('/api/bruno'), fetchOpts);
+    const r = await fetch(api('/api/bruno?' + qsPeriodo()), fetchOpts);
     const j = await r.json();
     if (!j.ok) { box.innerHTML = `<div class="erro">${escapeHtml(j.erro || 'fonte do Bruno indisponível')}</div>`; return; }
     renderBruno(j);
@@ -1080,6 +1200,54 @@ async function carregarBruno() {
     box.innerHTML = `<div class="erro">Falha de rede: ${escapeHtml(e.message)}</div>`;
   }
 }
+// Potência de gerador mais solicitada (Incremento C). Lê d.potencias (já
+// normalizado/agregado no back). Mostra a moda em destaque + ranking de kVA,
+// com "kVA não informado" como fatia honesta e alerta se preenchimento < 50%.
+function renderPotencias(p) {
+  if (!p || !p.total) {
+    return `<div class="secao">
+      <div class="secao-head"><h2><span class="accent"></span>Potência solicitada</h2><span class="hint">kVA pedido pelos leads</span></div>
+      <div class="vazio">Sem leads na janela pra medir potência.</div>
+    </div>`;
+  }
+  const moda = p.moda;
+  const destaque = moda
+    ? `<div class="potencia-destaque">
+         <div class="pd-label">Potência mais pedida</div>
+         <div class="pd-valor mono">${escapeHtml(moda.label)}</div>
+         <div class="pd-sub">${moda.n} de ${p.comKva} ${p.comKva === 1 ? 'lead' : 'leads'} com kVA informado</div>
+       </div>`
+    : `<div class="potencia-destaque">
+         <div class="pd-label">Potência mais pedida</div>
+         <div class="pd-valor mono">—</div>
+         <div class="pd-sub">nenhum kVA informado nesta janela</div>
+       </div>`;
+
+  const maxN = Math.max(...p.ranking.map(x => x.n), p.semKva, 1);
+  const barras = p.ranking.map(x =>
+    `<div class="funil-row">
+       <span class="regiao-nome" title="${escapeHtml(x.label)}">${escapeHtml(x.label)}</span>
+       <div class="barra-wrap"><div class="barra" style="width:${(x.n / maxN) * 100}%;background:linear-gradient(90deg,var(--blue),#4ea1ffaa)"></div></div>
+       <span class="qtd mono">${num(x.n)}</span>
+     </div>`).join('');
+  const semInfo = p.semKva
+    ? `<div class="funil-row">
+         <span class="regiao-nome" style="color:var(--muted)">kVA não informado</span>
+         <div class="barra-wrap"><div class="barra" style="width:${(p.semKva / maxN) * 100}%;background:linear-gradient(90deg,#6b7488,#6b748899)"></div></div>
+         <span class="qtd mono">${num(p.semKva)}</span>
+       </div>`
+    : '';
+  const alerta = p.pctPreenchido < 50
+    ? `<span class="hint" style="color:var(--amber)">só ${p.pctPreenchido}% dos leads têm kVA · captura a reforçar</span>`
+    : `<span class="hint">${p.pctPreenchido}% dos leads com kVA informado</span>`;
+
+  return `<div class="secao">
+    <div class="secao-head"><h2><span class="accent"></span>Potência solicitada</h2>${alerta}</div>
+    ${destaque}
+    <div class="funil" style="margin-top:16px">${barras}${semInfo}</div>
+  </div>`;
+}
+
 function renderBruno(d) {
   const box = document.getElementById('bruno-conteudo');
   const f = d.funil || {};
@@ -1137,6 +1305,7 @@ function renderBruno(d) {
 
   box.innerHTML = `
     <div class="kpis">${kpis.map(kpiCard).join('')}</div>
+    ${renderPotencias(d.potencias)}
     <div class="secao">
       <div class="secao-head"><h2><span class="accent"></span>Distribuição por etapa</h2><span class="hint">leads por etapa · tempo médio parado (SLA)</span></div>
       ${dist.length ? `<div class="funil">${distRows}</div>` : '<div class="vazio">Sem leads no funil.</div>'}
@@ -1257,6 +1426,7 @@ setInterval(() => {
 }, 1000);
 
 (async () => {
+  atualizarRotuloPeriodo();
   carregarSla();
   await carregarCadencias();
   await carregar();

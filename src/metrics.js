@@ -7,6 +7,7 @@ import {
   listarCadencias,
   listarLeadsPorIds,
 } from './supabase-client.js';
+import { resolverJanela } from './periodo.js';
 
 // Ordem canônica do funil. Usada pra calcular "etapa atual" do lead (última
 // transição com maior rank ou simplesmente a mais recente).
@@ -22,22 +23,6 @@ export const FUNIL_ORDEM = [
   'sql-perdido',
   'encerrado',
 ];
-
-function calcularDesde(periodo) {
-  const agora = new Date();
-  switch (periodo) {
-    case 'hoje': {
-      const d = new Date(agora);
-      d.setHours(0, 0, 0, 0);
-      return d.toISOString();
-    }
-    case '7d':  return new Date(agora.getTime() - 7  * 86400_000).toISOString();
-    case '30d': return new Date(agora.getTime() - 30 * 86400_000).toISOString();
-    case '3m':  return new Date(agora.getTime() - 90 * 86400_000).toISOString();
-    case '6m':  return new Date(agora.getTime() - 180 * 86400_000).toISOString();
-    default:    return new Date(agora.getTime() - 7  * 86400_000).toISOString();
-  }
-}
 
 // Pra cada lead, agrupa as transições e calcula:
 // - etapa_atual (última transição registrada)
@@ -112,15 +97,15 @@ function distribuicaoAtual(leadsConsolidados) {
   return out;
 }
 
-export async function montarMetricas({ periodo = '7d', cadenciaId = null } = {}) {
-  const desde = calcularDesde(periodo);
+export async function montarMetricas({ periodo = '7d', de = null, ate = null, cadenciaId = null } = {}) {
+  const janela = resolverJanela({ periodo, de, ate });
   const agora = new Date();
 
   // Puxa todas as transições da janela. Pra mostrar etapa_atual de leads que
   // entraram antes da janela mas continuam ativos, também puxamos transições
   // anteriores deles via segunda query — simplificação inicial: só janela.
   // (Trade-off aceitável; dashboard sempre vai mostrar a janela escolhida.)
-  const transicoes = await transicoesPorLead({ desde, cadenciaId });
+  const transicoes = await transicoesPorLead({ desde: janela.desde, ate: janela.ate, cadenciaId });
   const leadsConsolidados = consolidarPorLead(transicoes, agora);
   const leadIds = leadsConsolidados.map(l => l.lead_id);
   const leadsInfo = await listarLeadsPorIds(leadIds);
@@ -149,7 +134,7 @@ export async function montarMetricas({ periodo = '7d', cadenciaId = null } = {})
 
   return {
     geradoEm: agora.toISOString(),
-    periodo,
+    periodo: janela.periodo,
     cadenciaId,
     kpis: {
       total_contatos: totalContatosNaCampanha,

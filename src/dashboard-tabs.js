@@ -9,21 +9,63 @@
 import { supabase } from './supabase-client.js';
 
 // ─── Tráfego (snapshot da Meta) ─────────────────────────────────────────────
-// Lê o snapshot mais recente de `trafego_snapshots`. snapshot === null =>
-// "sem dado de tráfego ainda" (estado, não erro). Erro real => lança.
-export async function getSnapshotTrafego() {
-  const { data, error } = await supabase
+// Lê o snapshot de `trafego_snapshots` que melhor cobre a janela escolhida.
+// snapshot === null => "sem dado de tráfego ainda" (estado, não erro).
+//
+// O snapshot é SEMANAL e manual, então a granularidade quase nunca bate com a
+// janela do seletor. Regra (não inventa número): pega o snapshot mais recente
+// cuja janela semanal cruza a janela escolhida; se nenhum cruzar, cai no mais
+// recente de todos e marca `fora_da_janela` pro front avisar. Sem janela
+// (desde=null) => snapshot mais recente (comportamento legado).
+export async function getSnapshotTrafego({ desde = null, ate = null } = {}) {
+  if (!desde) {
+    const { data, error } = await supabase
+      .from('trafego_snapshots')
+      .select('*')
+      .order('capturado_em', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizarSnapshot(data, false) : null;
+  }
+
+  // janela_inicio / janela_fim são colunas `date`; comparo pela data de
+  // CALENDÁRIO em BR (UTC-3). Não dá pra fatiar o ISO cru: 23:59 BR vira 02:59
+  // UTC do dia seguinte e vazaria a data do fim pro próximo dia (casaria snapshot
+  // fora da janela). Por isso desloco -3h antes de pegar a data.
+  const dataBR = (iso) => new Date(new Date(iso).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const desdeData = dataBR(desde);
+  const ateData = dataBR(ate || new Date().toISOString());
+
+  // Overlap: janela_inicio <= ate E janela_fim >= desde. Mais recente captura.
+  const { data: dentro, error: e1 } = await supabase
+    .from('trafego_snapshots')
+    .select('*')
+    .lte('janela_inicio', ateData)
+    .gte('janela_fim', desdeData)
+    .order('capturado_em', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e1) throw e1;
+  if (dentro) return normalizarSnapshot(dentro, false);
+
+  // Nenhum snapshot cobre a janela => mostra o mais recente, marcado fora dela.
+  const { data: ultimo, error: e2 } = await supabase
     .from('trafego_snapshots')
     .select('*')
     .order('capturado_em', { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (e2) throw e2;
+  return ultimo ? normalizarSnapshot(ultimo, true) : null;
+}
 
-  if (error) throw error;
-  if (!data) return null;
-
+// `por_regiao` pode não existir ainda (coluna nova) => vira [] (estado vazio
+// honesto no front, sem quebrar).
+function normalizarSnapshot(data, foraDaJanela) {
   const criativos = Array.isArray(data.criativos) ? data.criativos : [];
-  return { ...data, criativos };
+  const por_regiao = Array.isArray(data.por_regiao) ? data.por_regiao : [];
+  return { ...data, criativos, por_regiao, fora_da_janela: foraDaJanela };
 }
 
 // ─── SLA 2h (leads qualificados que estouraram e viraram lembrete) ──────────
@@ -62,11 +104,16 @@ export async function getSlaAlertas() {
 
 // ─── Bruno (funil inbound) ──────────────────────────────────────────────────
 // Funil derivado de eventos (verdade do que aconteceu), via count exato sem
-// trazer linha.
-export async function getFunilBruno() {
-  const contar = async (tabela, filtro) => {
+// trazer linha. Respeita a janela do seletor global filtrando cada tabela pela
+// SUA marca de tempo natural (bruno_leads/eventos por criado_em; followup
+// enviado por enviado_em). "Follow-ups abertos" é estado atual (pendente AGORA),
+// então não filtra por janela de propósito.
+export async function getFunilBruno({ desde = null, ate = null } = {}) {
+  const contar = async (tabela, coluna, filtro = null) => {
     let q = supabase.from(tabela).select('*', { count: 'exact', head: true });
     if (filtro) q = q.eq(filtro.coluna, filtro.valor);
+    if (coluna && desde) q = q.gte(coluna, desde);
+    if (coluna && ate) q = q.lte(coluna, ate);
     const { count, error } = await q;
     if (error) throw error;
     return count ?? 0;
@@ -74,15 +121,65 @@ export async function getFunilBruno() {
 
   const [leads, qualificados, handoffs, followupsAbertos, followupsEnviados, semResposta] =
     await Promise.all([
-      contar('bruno_leads'),
-      contar('bruno_eventos', { coluna: 'tipo', valor: 'qualificado' }),
-      contar('bruno_eventos', { coluna: 'tipo', valor: 'handoff_solicitado' }),
-      contar('bruno_agendamentos_followup', { coluna: 'status', valor: 'pendente' }),
-      contar('bruno_agendamentos_followup', { coluna: 'status', valor: 'enviado' }),
-      contar('bruno_leads', { coluna: 'stage', valor: 'no_response' }),
+      contar('bruno_leads', 'criado_em'),
+      contar('bruno_eventos', 'criado_em', { coluna: 'tipo', valor: 'qualificado' }),
+      contar('bruno_eventos', 'criado_em', { coluna: 'tipo', valor: 'handoff_solicitado' }),
+      contar('bruno_agendamentos_followup', null, { coluna: 'status', valor: 'pendente' }),
+      contar('bruno_agendamentos_followup', 'enviado_em', { coluna: 'status', valor: 'enviado' }),
+      contar('bruno_leads', 'criado_em', { coluna: 'stage', valor: 'no_response' }),
     ]);
 
   return { leads, qualificados, handoffs, followupsAbertos, followupsEnviados, semResposta };
+}
+
+// ─── Potência de gerador mais solicitada (Incremento C) ─────────────────────
+// Normaliza kVA sujo: "180", "180kva", "180 KVA", "180 kVA" => 180.
+// Faixas ("20-30", "15 a 25") e múltiplos ("50 e 100") viram rótulo próprio —
+// NÃO inventa um número único. Sem dígito => null (= "não informado").
+export function normalizaKva(raw) {
+  if (raw == null) return null;
+  const s = String(raw).toLowerCase()
+    .replace(/kva|kw|kv/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const achados = s.match(/\d+(?:[.,]\d+)?/g);
+  if (!achados) return null;
+  const vals = achados
+    .map((n) => Math.round(parseFloat(n.replace(',', '.'))))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!vals.length) return null;
+  if (vals.length === 1) return { valor: vals[0], label: `${vals[0]} kVA`, faixa: false };
+  // Faixa/múltiplo: rótulo próprio com "a" (sem travessão), ordena pelo menor.
+  const ordenados = [...new Set(vals)].sort((a, b) => a - b);
+  return { valor: ordenados[0], label: `${ordenados.join(' a ')} kVA`, faixa: true };
+}
+
+// Agrega a moda + ranking de potências a partir dos leads (já filtrados pela
+// janela). Reporta % de preenchimento pra o front ser honesto com o buraco de
+// dado (kVA não informado é fatia visível, não some).
+function agregarPotencias(leads) {
+  const total = leads.length;
+  const buckets = new Map(); // label => { label, valor, faixa, n }
+  let semKva = 0;
+  for (const l of leads) {
+    const norm = normalizaKva(l.kva);
+    if (!norm) { semKva++; continue; }
+    const cur = buckets.get(norm.label) || { label: norm.label, valor: norm.valor, faixa: norm.faixa, n: 0 };
+    cur.n++;
+    buckets.set(norm.label, cur);
+  }
+  const ranking = [...buckets.values()].sort(
+    (a, b) => b.n - a.n || (a.valor ?? Infinity) - (b.valor ?? Infinity),
+  );
+  const comKva = total - semKva;
+  return {
+    ranking,
+    moda: ranking[0] || null,
+    total,
+    comKva,
+    semKva,
+    pctPreenchido: total ? Math.round((comKva / total) * 100) : 0,
+  };
 }
 
 // Ordem canônica do funil do Bruno (inbound). Stages fora dessa lista entram no
@@ -107,12 +204,29 @@ const stageLabel = (s) => (s ? BRUNO_STAGE_LABEL[s] || s : null);
 // "Tempo na etapa atual" usa atualizado_em (marca a última mudança de etapa do
 // lead) como entrada na etapa. Não há tabela de transições no Bruno como no
 // Lúcio; a timeline detalhada vem de bruno_eventos.
-export async function getBrunoDashboard() {
+export async function getBrunoDashboard({ desde = null, ate = null } = {}) {
   const agora = Date.now();
-  const [leadsRes, eventosRes, transRes, msgsRes] = await Promise.all([
-    supabase
-      .from('bruno_leads')
-      .select('id, nome, empresa, telefone, stage, criado_em, atualizado_em'),
+
+  // Leads e mensagens respeitam a janela; eventos/transições vêm completos
+  // (servem de timeline só pros leads já filtrados). nomesRes é o mapa de
+  // nome/telefone de TODOS os leads, pra join de mensagem não cair em "—".
+  let leadsQ = supabase
+    .from('bruno_leads')
+    .select('id, nome, empresa, telefone, stage, kva, criado_em, atualizado_em');
+  if (desde) leadsQ = leadsQ.gte('criado_em', desde);
+  if (ate) leadsQ = leadsQ.lte('criado_em', ate);
+
+  let msgsQ = supabase
+    .from('bruno_mensagens')
+    .select('lead_id, autor, texto, toque, enviada_em')
+    .eq('direcao', 'out')
+    .order('enviada_em', { ascending: false })
+    .limit(80);
+  if (desde) msgsQ = msgsQ.gte('enviada_em', desde);
+  if (ate) msgsQ = msgsQ.lte('enviada_em', ate);
+
+  const [leadsRes, eventosRes, transRes, msgsRes, nomesRes] = await Promise.all([
+    leadsQ,
     supabase
       .from('bruno_eventos')
       .select('lead_id, tipo, criado_em')
@@ -121,17 +235,14 @@ export async function getBrunoDashboard() {
       .from('bruno_transicoes')
       .select('lead_id, etapa_de, etapa_para, criado_em')
       .order('criado_em', { ascending: true }),
-    supabase
-      .from('bruno_mensagens')
-      .select('lead_id, autor, texto, toque, enviada_em')
-      .eq('direcao', 'out')
-      .order('enviada_em', { ascending: false })
-      .limit(80),
+    msgsQ,
+    supabase.from('bruno_leads').select('id, nome, empresa, telefone'),
   ]);
   if (leadsRes.error) throw leadsRes.error;
   if (eventosRes.error) throw eventosRes.error;
   if (transRes.error) throw transRes.error;
   if (msgsRes.error) throw msgsRes.error;
+  if (nomesRes.error) throw nomesRes.error;
 
   const leads = leadsRes.data ?? [];
   const eventos = eventosRes.data ?? [];
@@ -200,8 +311,8 @@ export async function getBrunoDashboard() {
       };
     });
 
-  // Mensagens enviadas (toques) — join nome/telefone do lead.
-  const leadMap = new Map(leads.map((l) => [l.id, l]));
+  // Mensagens enviadas (toques) — join nome/telefone via mapa completo.
+  const leadMap = new Map((nomesRes.data ?? []).map((l) => [l.id, l]));
   const mensagens = msgs.map((m) => ({
     nome: leadMap.get(m.lead_id)?.nome || '—',
     telefone: leadMap.get(m.lead_id)?.telefone || '',
@@ -211,7 +322,10 @@ export async function getBrunoDashboard() {
     enviada_em: m.enviada_em,
   }));
 
-  return { distribuicao, leads: leadsDetalhe, mensagens };
+  // Potência mais pedida + ranking de kVA (Incremento C), só dos leads da janela.
+  const potencias = agregarPotencias(leads);
+
+  return { distribuicao, leads: leadsDetalhe, mensagens, potencias };
 }
 
 function rotuloEvento(tipo) {
