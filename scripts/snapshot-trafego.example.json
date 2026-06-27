@@ -9,6 +9,12 @@
   "cpc": 4.47,
   "cpl": 33.89,
   "origem": "mcp",
+  "por_regiao": [
+    { "regiao": "São Paulo", "conversas": 7, "investimento": 241.30, "cpl": 34.47, "proxy": false },
+    { "regiao": "Santa Catarina", "conversas": 5, "investimento": 180.10, "cpl": 36.02, "proxy": false },
+    { "regiao": "Paraná", "conversas": 3, "investimento": 95.20, "cpl": 31.73, "proxy": false },
+    { "regiao": "Rio Grande do Sul", "conversas": 2, "investimento": 59.45, "cpl": 29.72, "proxy": false }
+  ],
   "criativos": [
     {
       "id": "AD01",

@@ -16,6 +16,17 @@
 //   GET /{ad-id}?fields=creative{thumbnail_url,image_url}
 // e gravar em criativos[].imagem_url (image_url = imagem cheia; thumbnail_url =
 // preview pequeno, sempre presente). Sem isso o card mostra "sem imagem".
+//
+// CONVERSÕES POR REGIÃO (por_regiao): vem do mesmo ads_insights, com breakdown
+// `region` na métrica de resultado:
+//   GET act_<id>/insights?breakdowns=region&fields=spend,actions&time_range=...
+// e some, por região, a action onsite_conversion.messaging_conversation_started_*
+// (conversa de WhatsApp iniciada). Grave cada região como:
+//   { "regiao": "São Paulo", "conversas": N, "investimento": gasto, "cpl": gasto/N }
+// Se a Meta NÃO entregar a conversa de mensagem quebrada por região, use cliques
+// no link / leads por região como PROXY e marque "proxy": true (o dashboard
+// rotula "(proxy: cliques)"). Nunca fabricar número — sem dado, deixe [] e o
+// dashboard mostra estado vazio honesto. Requer a migração 010 aplicada.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -60,6 +71,7 @@ const snapshot = {
   cpc: raw.cpc ?? null,
   cpl: raw.cpl ?? null,
   criativos: Array.isArray(raw.criativos) ? raw.criativos : [],
+  por_regiao: Array.isArray(raw.por_regiao) ? raw.por_regiao : [],
   origem: raw.origem ?? 'mcp',
 };
 
@@ -81,4 +93,5 @@ if (error) {
 console.log('✓ Snapshot gravado no CMO:', data.id);
 console.log('  capturado_em:', data.capturado_em);
 console.log('  criativos:', snapshot.criativos.length);
-console.log('Abra /dashboard → aba Tráfego pra ver os KPIs + galeria.');
+console.log('  regiões:', snapshot.por_regiao.length);
+console.log('Abra /dashboard → aba Tráfego pra ver os KPIs + galeria + regiões.');
