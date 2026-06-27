@@ -10,6 +10,9 @@ dist/
 coverage/
 .vscode/
 
+# Worktrees locais do Claude Code (não versionar)
+.claude/worktrees/
+
 # Dados reais de cliente (leads/contatos) — nunca versionar.
 docs/inbox/*.csv
 docs/inbox/*.xlsx
