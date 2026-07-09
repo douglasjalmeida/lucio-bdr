@@ -1108,7 +1108,7 @@ function renderRegioes(s) {
   }).join('');
   return `<div class="secao">
     <div class="secao-head"><h2><span class="accent"></span>Conversões por região</h2>
-      <span class="hint">conversas por região · CPL ao lado${algumProxy ? ' · (proxy: cliques)' : ''}</span></div>
+      <span class="hint">conversas por região · CPL ao lado${algumProxy ? ' · (proxy: 1ª resposta)' : ''}</span></div>
     <div class="funil">${rows}</div>
   </div>`;
 }
@@ -1162,7 +1162,7 @@ function renderTrafego(s) {
     ? ` · <span style="color:var(--amber)">snapshot fora do período escolhido (cobre ${cobertura})</span>`
     : '';
   box.innerHTML = `
-    <div class="trafego-meta">Período coberto ${cobertura} · snapshot de ${formatarData(s.capturado_em)} · fonte ${escapeHtml(s.origem || 'mcp')}${aviso}</div>
+    <div class="trafego-meta">Período coberto ${cobertura} · atualizado ${formatarData(s.capturado_em)} · fonte ${escapeHtml(s.origem || 'mcp')}${aviso}</div>
     <div class="kpis">${kpis.map(kpiCard).join('')}</div>
     <div class="secao">
       <div class="secao-head"><h2><span class="accent"></span>Criativos</h2><span class="hint">ordenados por CPL · melhor primeiro</span></div>

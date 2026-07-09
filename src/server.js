@@ -49,6 +49,7 @@ import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
 import { resolverJanela } from './periodo.js';
 import { getSnapshotTrafego, getFunilBruno, getBrunoDashboard, getSlaAlertas } from './dashboard-tabs.js';
+import { iniciarColetaAutomatica } from './trafego-coletor.js';
 import { listarTemperaturas } from './temperatura-analyzer.js';
 import { construirEmailPayload, enviarEmailResend } from './resend-client.js';
 import path from 'node:path';
@@ -1020,4 +1021,6 @@ app.post('/handoff-return', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`[lucio-bridge] escutando em http://localhost:${PORT}`);
   console.log(`  supabase=${supabaseEnabled()} chatwoot=${chatwootEnabled()} crm=${crmEnabled()} n8n_out=${!!N8N_OUT_WEBHOOK_URL} buffer=${bufferEnabled() ? bufferSeconds()+'s' : 'off'}`);
+  // Mantém a aba Tráfego fresca sozinha (Meta → trafego_diario a cada ~30min).
+  iniciarColetaAutomatica();
 });

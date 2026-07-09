@@ -8,64 +8,85 @@
 
 import { supabase } from './supabase-client.js';
 
-// ─── Tráfego (snapshot da Meta) ─────────────────────────────────────────────
-// Lê o snapshot de `trafego_snapshots` que melhor cobre a janela escolhida.
-// snapshot === null => "sem dado de tráfego ainda" (estado, não erro).
-//
-// O snapshot é SEMANAL e manual, então a granularidade quase nunca bate com a
-// janela do seletor. Regra (não inventa número): pega o snapshot mais recente
-// cuja janela semanal cruza a janela escolhida; se nenhum cruzar, cai no mais
-// recente de todos e marca `fora_da_janela` pro front avisar. Sem janela
-// (desde=null) => snapshot mais recente (comportamento legado).
+// ─── Tráfego (dia a dia, agregado no período do seletor) ────────────────────
+// Soma `trafego_diario` (Meta, gravado pelo worker) no intervalo [desde, ate] que
+// o seletor global escolheu — igual às abas Bruno/Lúcio. Retorna null = "sem dado
+// ainda" (estado, não erro). NÃO inventa número: só soma o que o worker gravou.
+// Mantém o MESMO formato que o front (renderTrafego) espera. `fora_da_janela`
+// sempre false agora — os dados sempre cobrem exatamente o período pedido.
+const CONTA_TRAFEGO = process.env.META_AD_ACCOUNT_ID || 'act_211274648569722';
+
+// Data de CALENDÁRIO em BR (UTC-3): o ISO cru fatiado vazaria o dia (23:59 BR = 02:59 UTC+1).
+const dataBR = (iso) => new Date(new Date(iso).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const arred2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+
 export async function getSnapshotTrafego({ desde = null, ate = null } = {}) {
-  if (!desde) {
-    const { data, error } = await supabase
-      .from('trafego_snapshots')
-      .select('*')
-      .order('capturado_em', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    return data ? normalizarSnapshot(data, false) : null;
-  }
-
-  // janela_inicio / janela_fim são colunas `date`; comparo pela data de
-  // CALENDÁRIO em BR (UTC-3). Não dá pra fatiar o ISO cru: 23:59 BR vira 02:59
-  // UTC do dia seguinte e vazaria a data do fim pro próximo dia (casaria snapshot
-  // fora da janela). Por isso desloco -3h antes de pegar a data.
-  const dataBR = (iso) => new Date(new Date(iso).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-  const desdeData = dataBR(desde);
   const ateData = dataBR(ate || new Date().toISOString());
+  const desdeData = dataBR(desde || new Date(Date.now() - 30 * 86400_000).toISOString());
 
-  // Overlap: janela_inicio <= ate E janela_fim >= desde. Mais recente captura.
-  const { data: dentro, error: e1 } = await supabase
-    .from('trafego_snapshots')
-    .select('*')
-    .lte('janela_inicio', ateData)
-    .gte('janela_fim', desdeData)
-    .order('capturado_em', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: diario, error: e1 } = await supabase
+    .from('trafego_diario').select('*')
+    .eq('conta_id', CONTA_TRAFEGO).gte('data', desdeData).lte('data', ateData);
   if (e1) throw e1;
-  if (dentro) return normalizarSnapshot(dentro, false);
+  if (!diario || diario.length === 0) return null;
 
-  // Nenhum snapshot cobre a janela => mostra o mais recente, marcado fora dela.
-  const { data: ultimo, error: e2 } = await supabase
-    .from('trafego_snapshots')
-    .select('*')
-    .order('capturado_em', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: regioesRaw, error: e2 } = await supabase
+    .from('trafego_diario_regiao').select('*')
+    .eq('conta_id', CONTA_TRAFEGO).gte('data', desdeData).lte('data', ateData);
   if (e2) throw e2;
-  return ultimo ? normalizarSnapshot(ultimo, true) : null;
-}
 
-// `por_regiao` pode não existir ainda (coluna nova) => vira [] (estado vazio
-// honesto no front, sem quebrar).
-function normalizarSnapshot(data, foraDaJanela) {
-  const criativos = Array.isArray(data.criativos) ? data.criativos : [];
-  const por_regiao = Array.isArray(data.por_regiao) ? data.por_regiao : [];
-  return { ...data, criativos, por_regiao, fora_da_janela: foraDaJanela };
+  const { data: crits, error: e3 } = await supabase
+    .from('trafego_criativo').select('*').eq('conta_id', CONTA_TRAFEGO);
+  if (e3) throw e3;
+  const metaCrit = new Map((crits || []).map((c) => [c.criativo_id, c]));
+
+  // Totais + agregação por criativo
+  let inv = 0, imp = 0, cli = 0, conv = 0, ultima = null;
+  const porLabel = new Map();
+  for (const r of diario) {
+    inv += Number(r.spend || 0); imp += Number(r.impressoes || 0);
+    cli += Number(r.cliques || 0); conv += Number(r.conversas || 0);
+    if (!ultima || r.atualizado_em > ultima) ultima = r.atualizado_em;
+    const a = porLabel.get(r.criativo_id) || { gasto: 0, impressoes: 0, cliques: 0, conversas: 0 };
+    a.gasto += Number(r.spend || 0); a.impressoes += Number(r.impressoes || 0);
+    a.cliques += Number(r.cliques || 0); a.conversas += Number(r.conversas || 0);
+    porLabel.set(r.criativo_id, a);
+  }
+  const criativos = [...porLabel.entries()].map(([id, a]) => {
+    const m = metaCrit.get(id) || {};
+    return {
+      id, nome: m.nome || `${id} - Geradores de Energia`, objetivo: m.objetivo || 'messaging_conversation',
+      gasto: arred2(a.gasto), conversas: a.conversas,
+      cpl: a.conversas ? arred2(a.gasto / a.conversas) : null,
+      ctr: a.impressoes ? arred2((a.cliques / a.impressoes) * 100) : null,
+      status: m.status || 'ativo', imagem_url: m.imagem_url || null,
+    };
+  }).filter((c) => c.gasto > 0 || c.conversas > 0);
+
+  // Agregação por região
+  const porReg = new Map();
+  for (const r of regioesRaw || []) {
+    const a = porReg.get(r.regiao) || { investimento: 0, conversas: 0, proxy: false };
+    a.investimento += Number(r.spend || 0); a.conversas += Number(r.conversas || 0);
+    if (r.proxy) a.proxy = true;
+    porReg.set(r.regiao, a);
+  }
+  const por_regiao = [...porReg.entries()].map(([regiao, a]) => ({
+    regiao, conversas: a.conversas, investimento: arred2(a.investimento),
+    cpl: a.conversas ? arred2(a.investimento / a.conversas) : null, proxy: a.proxy,
+  })).filter((r) => r.investimento > 0 || r.conversas > 0)
+    .sort((x, y) => (x.cpl ?? Infinity) - (y.cpl ?? Infinity));
+
+  const datas = diario.map((r) => r.data).sort();
+  return {
+    investimento: arred2(inv), impressoes: imp, conversas: conv,
+    ctr: imp ? arred2((cli / imp) * 100) : null,
+    cpc: cli ? arred2(inv / cli) : null,
+    cpl: conv ? arred2(inv / conv) : null,
+    criativos, por_regiao,
+    janela_inicio: datas[0], janela_fim: datas[datas.length - 1],
+    capturado_em: ultima, origem: 'meta-api', fora_da_janela: false,
+  };
 }
 
 // ─── SLA 2h (leads qualificados que estouraram e viraram lembrete) ──────────
