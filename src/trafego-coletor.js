@@ -11,6 +11,7 @@
 // CLI de coleta manual: scripts/coletar-trafego.js. Loop: iniciarColetaAutomatica().
 
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 const V     = process.env.META_API_VERSION || 'v21.0';
 const TOKEN = process.env.META_SYSTEM_USER_TOKEN;
@@ -32,7 +33,12 @@ function checarEnv() {
   if (faltando.length) throw new Error('Faltou no .env: ' + faltando.join(', '));
 }
 
-const sb = () => createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+// Node 20 (imagem Docker) não tem WebSocket nativo → passa 'ws' pro realtime-js
+// não quebrar (mesmo fix do supabase-client.js). Em Node 22+ é ignorado.
+const sb = () => createClient(SB_URL, SB_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: WebSocket },
+});
 
 // Datas de CALENDÁRIO em BR (UTC-3) — a Meta reporta por dia no fuso da conta.
 const hojeBR = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
