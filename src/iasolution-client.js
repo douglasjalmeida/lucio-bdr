@@ -64,26 +64,26 @@ export async function enviarTextoImediato({ telefone, texto }) {
   return { messageId, raw: json };
 }
 
-// Baixa mídia (PTT do lead) pra transcrever. Segue o padrão da Cloud API:
-// GET no id devolve metadata com `url` temporária, e a url é baixada com o
-// mesmo Bearer. VALIDAR contra a doc da iaSolution antes do go-live — se o BSP
-// expuser outro caminho, é só este trecho que muda.
-export async function baixarMidia(mediaId) {
+// Baixa mídia (PTT do lead) pra transcrever. O download é direto, em UMA
+// requisição: não existe passo de metadata devolvendo url temporária.
+//
+// A doc (apihub.iasolution.app/docs) dá dois caminhos e recomenda o primeiro:
+//   1. `messages[].download_url`, que o webhook já entrega montado;
+//   2. GET /media/{media_id}/download, montado a partir do id.
+// Os dois exigem o mesmo Bearer do canal.
+export async function baixarMidia({ mediaId, downloadUrl } = {}) {
   if (!enabled) throw new Error('iaSolution desabilitada');
-  if (!mediaId) throw new Error('baixarMidia: mediaId vazio');
+  if (!downloadUrl && !mediaId) throw new Error('baixarMidia: sem downloadUrl nem mediaId');
 
-  const meta = await chamar(`/media/${encodeURIComponent(mediaId)}`, { method: 'GET' });
-  const url = meta?.url || meta?.data?.url;
-  if (!url) throw new Error(`iaSolution: metadata de mídia sem url (id=${mediaId})`);
-
+  const url = downloadUrl || `${BASE}/media/${encodeURIComponent(mediaId)}/download`;
   const r = await fetch(url, {
     headers: { Authorization: `Bearer ${TOKEN}` },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!r.ok) throw new Error(`iaSolution: download de mídia ${r.status} (id=${mediaId})`);
+  if (!r.ok) throw new Error(`iaSolution: download de mídia ${r.status} (id=${mediaId || '-'})`);
 
   return {
     buffer: Buffer.from(await r.arrayBuffer()),
-    mimeType: meta?.mime_type || r.headers.get('content-type') || 'audio/ogg',
+    mimeType: r.headers.get('content-type') || 'audio/ogg',
   };
 }

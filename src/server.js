@@ -357,6 +357,9 @@ function parseMensagemIaSolution(m, contato) {
     tipo,
     messageId: m.id || '',
     audioId: tipo === 'audio' ? (m.audio?.id || '') : '',
+    // O webhook entrega a url de download já montada (é o caminho que a doc
+    // recomenda); o id fica de reserva pra montar o /media/{id}/download.
+    downloadUrl: m.download_url || '',
     timestamp: String(m.timestamp || ''),
     // Na coexistência, o eco do celular do dono chega como outbound → é o humano
     // atendendo pelo aparelho, mesmo sinal do antigo fromMeYes+wasNotSentByApi.
@@ -429,7 +432,7 @@ async function processarMensagemIaSolution(m, contato) {
     }
   }
 
-  if (evento.tipo === 'audio') evento.mensagem = await transcreverPtt(evento.audioId);
+  if (evento.tipo === 'audio') evento.mensagem = await transcreverPtt(evento);
   if (!evento.mensagem) {
     console.warn(`[bridge] iasolution: mensagem vazia (tipo=${evento.tipo}) tel=${evento.telefone} — ignorada`);
     return;
@@ -440,14 +443,14 @@ async function processarMensagemIaSolution(m, contato) {
 
 // Baixa e transcreve o PTT. Nunca lança: áudio que não transcreve vira aviso
 // pro Lúcio pedir texto, o que é melhor do que a conversa morrer em silêncio.
-async function transcreverPtt(audioId) {
+async function transcreverPtt({ audioId, downloadUrl }) {
   const FALLBACK = '[o lead mandou um áudio que não consegui ouvir]';
   if (!transcricaoEnabled()) {
     console.warn('[bridge] GROQ_API_KEY ausente — áudio não transcrito');
     return FALLBACK;
   }
   try {
-    const { buffer, mimeType } = await baixarMidia(audioId);
+    const { buffer, mimeType } = await baixarMidia({ mediaId: audioId, downloadUrl });
     const texto = await transcreverAudio({ buffer, mimeType });
     if (!texto) return FALLBACK;
     console.log(`[bridge] áudio transcrito (${texto.length} chars)`);
