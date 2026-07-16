@@ -390,23 +390,32 @@ function parseMensagemIaSolution(m, contato) {
   };
 }
 
+// O painel da iaSolution valida a URL antes de cadastrar e exige 200 — e esse
+// ping NÃO vem assinado. Como ele não dispara nada, responder 200 é inofensivo;
+// o que move estado (messages[]) segue exigindo HMAC.
+app.get('/webhook/iasolution', (_req, res) => res.json({ ok: true, pronto: true }));
+
 app.post('/webhook/iasolution', async (req, res) => {
-  if (!assinaturaConfere(req, req.rawBody)) {
+  const body = req.body || {};
+  const temMensagem = Array.isArray(body.messages) && body.messages.length > 0;
+
+  // Só o que age exige assinatura. Ping/status não mexem em lead nenhum.
+  if (temMensagem && !assinaturaConfere(req, req.rawBody)) {
     console.warn('[bridge] iasolution: webhook com assinatura HMAC inválida — rejeitado');
     return res.status(401).json({ ok: false });
   }
   res.json({ ok: true });
 
-  const body = req.body || {};
   try {
     // Ping de validação e evento só-de-status não são mensagem: saem quietos.
     if (body.test === true || Array.isArray(body.statuses)) return;
 
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    if (!temMensagem) {
       // Modo de falha mais provável do dia 1: envelope diferente do esperado
       // (a Cloud API crua aninha em entry[].changes[].value). Sem este log, o
-      // inbound inteiro morre em silêncio com 200 OK.
-      console.warn(`[bridge] iasolution: payload sem messages[] na raiz — chaves=${Object.keys(body).join(',') || '(vazio)'}`);
+      // inbound inteiro morre em silêncio com 200 OK. Loga também se veio
+      // assinatura, pra saber o que a iaSolution manda de fato no ping.
+      console.warn(`[bridge] iasolution: payload sem messages[] na raiz — chaves=${Object.keys(body).join(',') || '(vazio)'} assinado=${req.get('x-hub-signature-256') ? 'sim' : 'nao'}`);
       return;
     }
 
