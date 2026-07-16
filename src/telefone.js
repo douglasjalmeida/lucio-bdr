@@ -4,10 +4,13 @@
 
 // Persistimos sempre em E.164 com `+` na frente. A API do WhatsApp entrega sem
 // `+`, Chatwoot entrega com `+` — sem normalizar, mesmo número vira 2 leads.
+//
+// Limpa a formatação SEMPRE, inclusive quando já vem com `+`: número digitado
+// por humano em config ou CSV chega como "+55 48 9821-4107", e antes essa forma
+// passava intacta e não casava com a mesma linha vinda da API.
 export function normalizaTelefone(telefone) {
   if (!telefone) return telefone;
   const t = String(telefone).trim();
-  if (t.startsWith('+')) return t;
   const digits = t.replace(/\D/g, '');
   return digits ? '+' + digits : t;
 }
