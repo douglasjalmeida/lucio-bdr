@@ -14,13 +14,15 @@ import {
 } from './supabase-client.js';
 import {
   chatwootEnabled, garantirLeadNoChatwoot, espelharMensagemConversa,
-  addNotaPrivada, removerLabels, registrarOutboundDoBridge,
+  addNotaPrivada, removerLabels, registrarOutboundDoBridge, esquecerOutboundDoBridge,
 } from './chatwoot-client.js';
 import { gerarRespostaInbound, pareceVazamentoInterno } from './lucio-agent.js';
-import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
+import { enviarTextoImediato, iaSolutionEnabled, JanelaExpiradaError } from './iasolution-client.js';
 import { proximoSlotUtil } from './cadence-engine.js';
 
 const TIMEOUT_MIN = +(process.env.WATCHDOG_HANDOFF_TIMEOUT_MIN || 60);
+// Margem de 5min pra não tentar enviar em cima do limite e tomar recusa da Meta.
+const JANELA_LIVRE_MIN = 24 * 60 - 5;
 
 function dentroDaJanela() {
   if (process.env.CADENCE_IGNORAR_JANELA === '1') return true;
@@ -30,7 +32,7 @@ function dentroDaJanela() {
 }
 
 export async function revisarHandoffsAbandonados() {
-  if (!supabaseEnabled() || !uazapiEnabled()) return { processados: 0, motivo: 'deps off' };
+  if (!supabaseEnabled() || !iaSolutionEnabled()) return { processados: 0, motivo: 'deps off' };
   if (!dentroDaJanela()) return { processados: 0, motivo: 'fora-janela' };
 
   const { data: leads, error } = await supabase
@@ -57,6 +59,15 @@ export async function revisarHandoffsAbandonados() {
       const idadeMin = (Date.now() - new Date(ultima.enviada_em).getTime()) / 60000;
       if (idadeMin < TIMEOUT_MIN) continue;
 
+      // Janela de 24h da API oficial: passado esse tempo desde a msg do lead,
+      // texto livre não sai mais. Sair antes evita gerar (e pagar) uma resposta
+      // que a Meta ia recusar. O lead segue mudo, esperando o closer ou uma
+      // retomada por template.
+      if (idadeMin >= JANELA_LIVRE_MIN) {
+        console.warn(`[watchdog] lead ${lead.id} parado há ${Math.round(idadeMin / 60)}h — fora da janela de 24h, retomada automática impossível`);
+        continue;
+      }
+
       const { data: evs } = await supabase
         .from('eventos')
         .select('id')
@@ -82,12 +93,32 @@ export async function revisarHandoffsAbandonados() {
         continue;
       }
 
-      registrarOutboundDoBridge({ telefone: lead.telefone, conteudo: resposta });
-      await enviarTextoImediato({ telefone: lead.telefone, texto: resposta });
+      // Sai pela API oficial E é espelhada no Chatwoot: eco pelos dois lados.
+      registrarOutboundDoBridge({ telefone: lead.telefone, conteudo: resposta, canais: ['whatsapp', 'chatwoot'] });
+      let messageId = null;
+      try {
+        const r = await enviarTextoImediato({ telefone: lead.telefone, texto: resposta });
+        messageId = r.messageId;
+      } catch (err) {
+        // Sem envio não há eco: solta a marca pra não bloquear um reenvio igual.
+        esquecerOutboundDoBridge({ telefone: lead.telefone, conteudo: resposta });
+        // Corrida com o limite: a janela fechou entre a checagem e o envio.
+        // Não grava a mensagem — ela não chegou ao lead.
+        if (err instanceof JanelaExpiradaError) {
+          await registrarEvento(lead.id, 'envio_bloqueado_janela', { origem: 'watchdog', detalhe: err.message });
+          console.error(`[watchdog] lead ${lead.id}: janela fechou durante o envio, resposta descartada`);
+        } else {
+          console.error(`[watchdog] lead ${lead.id}: envio falhou:`, err.message);
+        }
+        continue;
+      }
 
       await gravarMensagem({
         lead_id: lead.id, chatid: null, direcao: 'out', autor: 'ia',
         texto: resposta, modo_no_momento: 'bot',
+        // Sem o id gravado, o eco desta mensagem após um restart voltaria como
+        // fala de humano e mutaria o Lúcio (o cache em memória não sobrevive).
+        uazapi_message_id: messageId,
         tokens_in: tokensIn, tokens_out: tokensOut,
       });
 

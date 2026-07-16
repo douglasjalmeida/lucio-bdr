@@ -2,7 +2,7 @@
   "name": "lucio-bdr",
   "version": "0.1.0",
   "private": true,
-  "description": "Lúcio — agente BDR comercial da Luminus em WhatsApp. Bridge Node + Claude Agent SDK + uazapi + Supabase + n8n + Chatwoot.",
+  "description": "Lúcio — agente BDR comercial da Luminus em WhatsApp. Bridge Node + Claude SDK + WhatsApp API oficial (iaSolution) + Supabase + Chatwoot.",
   "type": "module",
   "engines": {
     "node": ">=20"

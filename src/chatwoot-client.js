@@ -2,6 +2,10 @@
 // Tolera ausência de config (CHATWOOT_BASE_URL vazio) — todas as funções viram no-op.
 // Auth via user API access token (CHATWOOT_API_TOKEN).
 
+// Helpers de telefone: um só pro bridge inteiro (ver telefone.js). Este módulo
+// já teve cópias privadas que divergiram das do supabase-client.
+import { chaveTelefone, normalizaTelefone, variantesTelefone } from './telefone.js';
+
 const BASE_URL = (process.env.CHATWOOT_BASE_URL || '').replace(/\/+$/, '');
 const TOKEN = process.env.CHATWOOT_API_TOKEN || '';
 const ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '';
@@ -49,31 +53,6 @@ async function call(method, path, body = null) {
     throw new Error(`Chatwoot ${method} ${path} -> ${r.status}: ${snippet}`);
   }
   return json;
-}
-
-// Normaliza telefone pro padrão E.164 que o Chatwoot espera (+5511...).
-function normalizaTelefone(telefone) {
-  if (!telefone) return telefone;
-  const t = String(telefone).trim();
-  if (t.startsWith('+')) return t;
-  const digits = t.replace(/\D/g, '');
-  return '+' + digits;
-}
-
-// Variantes BR com e SEM o 9º dígito de celular — o WhatsApp entrega o mesmo
-// número ora com 13 dígitos, ora com 12. Sem reconciliar, vira contato duplicado.
-function variantesTelefone(telefone) {
-  const norm = normalizaTelefone(telefone);
-  if (!norm || !norm.startsWith('+')) return [norm].filter(Boolean);
-  const d = norm.slice(1);
-  const set = new Set([norm]);
-  if (d.startsWith('55')) {
-    const ddd = d.slice(2, 4);
-    const sub = d.slice(4);
-    if (sub.length === 9 && sub[0] === '9') set.add('+55' + ddd + sub.slice(1));
-    else if (sub.length === 8) set.add('+55' + ddd + '9' + sub);
-  }
-  return [...set];
 }
 
 // Busca contato por telefone, tolerante ao 9º dígito (casa 12 e 13 dígitos BR).
@@ -184,9 +163,18 @@ export function foiEspelhadoPeloBridge(id) {
 // Segundo cache, baseado em (telefone + hash do conteúdo). É o cinto de
 // segurança caso o filtro por ID falhe (formato diferente entre POST response
 // e webhook payload, restart de processo, múltiplas réplicas, etc).
-// Se o bridge enviou esse conteúdo pra esse telefone nos últimos 90s, qualquer
-// webhook outgoing com o mesmo par é tratado como eco e ignorado.
-const outboundByPhoneContent = new Map(); // key -> expiresAt
+// Se o bridge enviou esse conteúdo pra esse telefone nos últimos 90s, o webhook
+// com o mesmo par é tratado como eco e ignorado.
+//
+// O registro é POR CANAL, e a distinção importa: o cache responde duas
+// perguntas diferentes, e confundi-las quebra um guard com o outro.
+//   'whatsapp' → "isso saiu pela API oficial?"  guarda o /webhook/iasolution
+//   'chatwoot' → "isso já foi espelhado lá?"    guarda o /chatwoot-webhook
+// O que o Lúcio manda sai pelos dois (envio + espelho), então registra nos dois.
+// O que o CLOSER digita no Chatwoot já nasce lá: registrar em 'chatwoot' faria o
+// bridge engolir a repetição legítima dele ("oi" duas vezes) e, pior, o retry
+// que a nossa própria nota de falha manda ele fazer.
+const outboundByPhoneContent = new Map(); // key -> { expiresAt, canais:Set }
 const OUTBOUND_TTL_MS = 90_000;
 const OUTBOUND_MAX = 5000;
 
@@ -198,30 +186,59 @@ function hashConteudo(s) {
   return h.toString(36);
 }
 
+// A chave precisa ser cega pro 9º dígito: quem registra usa lead.telefone do
+// Supabase (13 díg) e o eco do WhatsApp volta como wa_id (às vezes 12). Sem
+// colapsar as duas grafias, o guard não casa e o Lúcio trata a própria
+// mensagem como fala de humano — e se silencia sozinho.
 function chaveOutbound(telefone, conteudo) {
-  const tel = String(telefone || '').replace(/\D/g, '');
-  return `${tel}|${hashConteudo(conteudo)}`;
+  return `${chaveTelefone(telefone)}|${hashConteudo(conteudo)}`;
 }
 
-export function registrarOutboundDoBridge({ telefone, conteudo }) {
+// canais: onde essa mensagem vai voltar como eco. Sempre explícito nos
+// chamadores — o default existe só como rede: registrar de menos deixa passar
+// eco (auto-mute silencioso), que é pior que registrar demais.
+//
+// refs conta quantos envios em voo dependem desta marca. Sem isso, duas
+// mensagens de texto IDÊNTICO pro mesmo telefone dentro da janela colidem na
+// mesma chave, e o esquecer() da que falhou apagaria a marca da que foi
+// entregue — deixando o eco dela passar como fala de humano.
+export function registrarOutboundDoBridge({ telefone, conteudo, canais = ['whatsapp', 'chatwoot'] }) {
   if (!telefone || !conteudo) return;
   const k = chaveOutbound(telefone, conteudo);
   const now = Date.now();
-  for (const [key, exp] of outboundByPhoneContent) if (exp <= now) outboundByPhoneContent.delete(key);
+  for (const [key, v] of outboundByPhoneContent) if (v.expiresAt <= now) outboundByPhoneContent.delete(key);
   if (outboundByPhoneContent.size >= OUTBOUND_MAX) {
     const firstKey = outboundByPhoneContent.keys().next().value;
     if (firstKey !== undefined) outboundByPhoneContent.delete(firstKey);
   }
-  outboundByPhoneContent.set(k, now + OUTBOUND_TTL_MS);
+  const atual = outboundByPhoneContent.get(k);
+  const vivo = atual && atual.expiresAt > now;
+  outboundByPhoneContent.set(k, {
+    expiresAt: now + OUTBOUND_TTL_MS,
+    canais: new Set([...(vivo ? atual.canais : []), ...canais]),
+    refs: (vivo ? atual.refs : 0) + 1,
+  });
 }
 
-export function jaEnviadoPeloBridge({ telefone, conteudo }) {
+// Desfaz o registro quando o envio falhou: sem envio não há eco, e deixar a
+// marca faria o retry do closer (que a nossa nota de erro pede) ser engolido.
+// Só apaga quando o último envio em voo com esse mesmo conteúdo desiste.
+export function esquecerOutboundDoBridge({ telefone, conteudo }) {
+  if (!telefone || !conteudo) return;
+  const k = chaveOutbound(telefone, conteudo);
+  const v = outboundByPhoneContent.get(k);
+  if (!v) return;
+  v.refs -= 1;
+  if (v.refs <= 0) outboundByPhoneContent.delete(k);
+}
+
+export function jaEnviadoPeloBridge({ telefone, conteudo, canal = 'chatwoot' }) {
   if (!telefone || !conteudo) return false;
   const k = chaveOutbound(telefone, conteudo);
-  const exp = outboundByPhoneContent.get(k);
-  if (!exp) return false;
-  if (exp <= Date.now()) { outboundByPhoneContent.delete(k); return false; }
-  return true;
+  const v = outboundByPhoneContent.get(k);
+  if (!v) return false;
+  if (v.expiresAt <= Date.now()) { outboundByPhoneContent.delete(k); return false; }
+  return v.canais.has(canal);
 }
 
 // Espelha mensagem na conversa. direction: 'in' (lead) ou 'out' (Lúcio/humano).

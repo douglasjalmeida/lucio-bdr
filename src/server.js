@@ -14,7 +14,10 @@ import {
   listarMensagensEnviadas,
   espelharNotaNoCrm,
   encerrarLead,
+  variantesTelefone,
+  mensagemNossaComMessageId,
 } from './supabase-client.js';
+import { chaveTelefone } from './telefone.js';
 import { deveResponder, executarHandoff } from './handoff.js';
 import { gerarRespostaInbound, pareceVazamentoInterno, detectarSinalUra } from './lucio-agent.js';
 import { avaliarQualificacao } from './qualifier.js';
@@ -29,6 +32,7 @@ import {
   foiEspelhadoPeloBridge,
   addNotaPrivada,
   registrarOutboundDoBridge,
+  esquecerOutboundDoBridge,
   jaEnviadoPeloBridge,
   atribuirAgente,
   CLOSER_MAP,
@@ -44,7 +48,8 @@ import {
   marcarFalha,
   resetarCadenciaSeRespondeu,
 } from './cadence-engine.js';
-import { enviarTextoImediato, uazapiEnabled } from './uazapi-client.js';
+import { enviarTextoImediato, iaSolutionEnabled, baixarMidia, JanelaExpiradaError } from './iasolution-client.js';
+import { transcreverAudio, transcricaoEnabled } from './transcricao.js';
 import crypto from 'node:crypto';
 import { montarMetricas, listarCadenciasParaSeletor } from './metrics.js';
 import { resolverJanela } from './periodo.js';
@@ -59,7 +64,6 @@ const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 const PORT = parseInt(process.env.PORT || '8788', 10);
-const N8N_OUT_WEBHOOK_URL = process.env.N8N_OUT_WEBHOOK_URL;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Dashboard (F6) — endpoint JSON + página estática.
@@ -240,23 +244,32 @@ app.get('/health', (_req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// /in — chamado pelo WF-Lucio-IN do n8n quando uma mensagem chega no WhatsApp.
+// /in — entrada normalizada de mensagem do WhatsApp.
 // Body: { telefone, nome, mensagem, chatid, timestamp, autor }
 //
-// Estratégia: responde 200 imediato pro n8n (evita timeout) e processa
+// Continua exposto pra teste manual (scripts/simular-conversa.js) e como
+// contrato interno: o webhook da API oficial abaixo faz o parse e cai aqui.
+//
+// Estratégia: responde 200 imediato (evita timeout do provedor) e processa
 // a mensagem assíncrono. Mensagens autor=lead passam por buffer (agrupa
 // rajadas em uma única chamada Claude). Mensagens autor=humano só gravam.
 // ──────────────────────────────────────────────────────────────────────────
 app.post('/in', async (req, res) => {
-  const { telefone, nome, mensagem, chatid, timestamp, autor } = req.body || {};
+  const { telefone, mensagem, autor } = req.body || {};
   if (!telefone || !mensagem || !autor) {
     return res.status(400).json({ ok: false, erro: 'telefone, mensagem e autor são obrigatórios' });
   }
 
   res.json({ ok: true, recebido: true });
+  rotearEntrada(req.body);
+});
 
+// Decide o destino de uma mensagem já normalizada. Fire-and-forget: quem chama
+// já respondeu 200 pro provedor.
+function rotearEntrada({ telefone, nome, mensagem, chatid, timestamp, autor }) {
   if (autor === 'humano') {
-    Promise.resolve(gravarHumano({ telefone, nome, mensagem, chatid })).catch(err => console.error('[bridge] erro humano:', err));
+    Promise.resolve(gravarHumano({ telefone, nome, mensagem, chatid }))
+      .catch(err => console.error('[bridge] erro humano:', err));
     return;
   }
 
@@ -270,7 +283,180 @@ app.post('/in', async (req, res) => {
       console.error('[bridge] erro no fast-path mudo, caindo no buffer:', err.message);
       enfileirarMensagem({ telefone, nome, mensagem, chatid, timestamp, autor }, processarBatch);
     });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// /webhook/iasolution — entrada da API oficial (Meta Cloud API via iaSolution).
+// Portado do WF-Lucio-IN-iaSolution: o bridge recebe o webhook direto, sem n8n.
+//
+// Allowlist (IASOLUTION_ALLOWLIST, CSV): filtro de teste. VAZIA = passa todo
+// mundo, que é o estado de produção. Preencher só enquanto valida E2E.
+// ──────────────────────────────────────────────────────────────────────────
+const IASOLUTION_ALLOWLIST = (process.env.IASOLUTION_ALLOWLIST || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function permitidoPelaAllowlist(telefone) {
+  if (!IASOLUTION_ALLOWLIST.length) return true;
+  // Casa as duas formas do celular BR (com e sem o 9º dígito) — senão o número
+  // de teste entra por uma forma e é barrado na outra.
+  const variantes = new Set(variantesTelefone(telefone).map(v => String(v).replace(/\D/g, '')));
+  return IASOLUTION_ALLOWLIST.some(a => variantes.has(a.replace(/\D/g, '')));
+}
+
+// Número do próprio canal (o WhatsApp da Luminus), E.164 sem +. Serve de trava:
+// nenhum evento cujo remetente seja a gente mesmo pode virar lead ou fala de
+// humano. Protege contra envelope em que o eco traz `from` = número do negócio.
+const IASOLUTION_NUMERO_NEGOCIO = String(process.env.IASOLUTION_NUMERO_NEGOCIO || '').replace(/\D/g, '');
+
+// Secret do webhook. Vazio = endpoint aberto (o n8n era o front door antes).
+const IASOLUTION_WEBHOOK_SECRET = process.env.IASOLUTION_WEBHOOK_SECRET || '';
+
+// Só por header: secret em query string vaza no access log do Easypanel, em
+// proxy e em qualquer ferramenta do caminho.
+function segredoConfere(req) {
+  if (!IASOLUTION_WEBHOOK_SECRET) return true;
+  const a = Buffer.from(String(req.get('x-webhook-secret') || ''));
+  const b = Buffer.from(IASOLUTION_WEBHOOK_SECRET);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Acha o contato correspondente à mensagem. Num lote com leads diferentes,
+// assumir contacts[0] pra todas atribuiria a mensagem ao lead errado (nome
+// trocado no inbound; no eco, mudo no lead errado).
+function contatoDaMensagem(m, contatos) {
+  if (!contatos.length) return {};
+  if (contatos.length === 1) return contatos[0];
+  const alvos = [m?.from, m?.to, m?.recipient_id].filter(Boolean).map(t => chaveTelefone(t));
+  return contatos.find(c => c?.wa_id && alvos.includes(chaveTelefone(c.wa_id))) || contatos[0];
+}
+
+// Parse de UMA mensagem do payload Meta Cloud API. Devolve null pro que não dá
+// pra rotear.
+function parseMensagemIaSolution(m, contato) {
+  // Num eco outbound o envelope da Meta traz `from` = número do NEGÓCIO e o
+  // interlocutor em `to`/`recipient_id`. Envelope normalizado por BSP costuma
+  // trazer `from` = lead nos dois sentidos. `to`/`recipient_id` são explícitos
+  // sobre quem é o destinatário, então valem mais que o contacts[] pareado.
+  const ehEco = (m.direction || 'inbound') !== 'inbound';
+  const telefone = String(
+    (ehEco ? (m.to || m.recipient_id || contato.wa_id || m.from) : (m.from || contato.wa_id)) || ''
+  );
+  if (!telefone) return null;
+
+  const tipo = m.type || 'text';
+  let texto = '';
+  if (tipo === 'text') texto = m.text?.body || m.normalized_text || '';
+  else if (m.normalized_text) texto = m.normalized_text;
+  else if (tipo !== 'audio') texto = m.caption || `[${tipo} recebido]`;
+
+  return {
+    telefone,
+    nome: contato.profile?.name || '',
+    chatid: telefone,
+    mensagem: texto,
+    tipo,
+    messageId: m.id || '',
+    audioId: tipo === 'audio' ? (m.audio?.id || '') : '',
+    timestamp: String(m.timestamp || ''),
+    // Na coexistência, o eco do celular do dono chega como outbound → é o humano
+    // atendendo pelo aparelho, mesmo sinal do antigo fromMeYes+wasNotSentByApi.
+    autor: ehEco ? 'humano' : 'lead',
+  };
+}
+
+app.post('/webhook/iasolution', async (req, res) => {
+  if (!segredoConfere(req)) {
+    console.warn('[bridge] iasolution: webhook com secret inválido — rejeitado');
+    return res.status(401).json({ ok: false });
+  }
+  res.json({ ok: true });
+
+  const body = req.body || {};
+  try {
+    // Ping de validação e evento só-de-status não são mensagem: saem quietos.
+    if (body.test === true || Array.isArray(body.statuses)) return;
+
+    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+      // Modo de falha mais provável do dia 1: envelope diferente do esperado
+      // (a Cloud API crua aninha em entry[].changes[].value). Sem este log, o
+      // inbound inteiro morre em silêncio com 200 OK.
+      console.warn(`[bridge] iasolution: payload sem messages[] na raiz — chaves=${Object.keys(body).join(',') || '(vazio)'}`);
+      return;
+    }
+
+    const contatos = Array.isArray(body.contacts) ? body.contacts : [];
+    // A Meta batcheia: processar só a [0] perderia mensagem sem deixar rastro.
+    for (const m of body.messages) {
+      // Uma falha numa mensagem não pode descartar as outras do lote.
+      try {
+        await processarMensagemIaSolution(m, contatoDaMensagem(m, contatos));
+      } catch (err) {
+        console.error(`[bridge] iasolution: erro processando msg id=${m?.id || '-'}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[bridge] erro no webhook iasolution:', err.message);
+  }
 });
+
+async function processarMensagemIaSolution(m, contato) {
+  const evento = parseMensagemIaSolution(m || {}, contato || {});
+  if (!evento) return;
+
+  if (IASOLUTION_NUMERO_NEGOCIO && chaveTelefone(evento.telefone) === chaveTelefone(IASOLUTION_NUMERO_NEGOCIO)) {
+    console.warn(`[bridge] iasolution: evento com remetente = nosso próprio número (${evento.telefone}) — ignorado. Confira o mapeamento de from/to do envelope.`);
+    return;
+  }
+
+  if (!permitidoPelaAllowlist(evento.telefone)) {
+    console.log(`[bridge] iasolution: ${evento.telefone} fora da allowlist de teste — ignorado`);
+    return;
+  }
+
+  // Anti-loop, duas camadas. A API oficial ecoa o que sai por ela, e tratar o
+  // eco como fala de humano colocaria o Lúcio em modo mudo sozinho — falha
+  // silenciosa e cara de diagnosticar.
+  if (evento.autor === 'humano') {
+    // 1) Por id da mensagem: sobrevive a restart de deploy e a réplica extra.
+    if (evento.messageId && supabaseEnabled() && await mensagemNossaComMessageId(evento.messageId)) {
+      console.log(`[bridge] iasolution: eco do próprio bridge ignorado por message_id=${evento.messageId}`);
+      return;
+    }
+    // 2) Por (telefone + conteúdo): cobre o envio que ainda não foi gravado.
+    if (jaEnviadoPeloBridge({ telefone: evento.telefone, conteudo: evento.mensagem, canal: 'whatsapp' })) {
+      console.log(`[bridge] iasolution: eco do próprio bridge ignorado tel=${evento.telefone}`);
+      return;
+    }
+  }
+
+  if (evento.tipo === 'audio') evento.mensagem = await transcreverPtt(evento.audioId);
+  if (!evento.mensagem) {
+    console.warn(`[bridge] iasolution: mensagem vazia (tipo=${evento.tipo}) tel=${evento.telefone} — ignorada`);
+    return;
+  }
+
+  rotearEntrada(evento);
+}
+
+// Baixa e transcreve o PTT. Nunca lança: áudio que não transcreve vira aviso
+// pro Lúcio pedir texto, o que é melhor do que a conversa morrer em silêncio.
+async function transcreverPtt(audioId) {
+  const FALLBACK = '[o lead mandou um áudio que não consegui ouvir]';
+  if (!transcricaoEnabled()) {
+    console.warn('[bridge] GROQ_API_KEY ausente — áudio não transcrito');
+    return FALLBACK;
+  }
+  try {
+    const { buffer, mimeType } = await baixarMidia(audioId);
+    const texto = await transcreverAudio({ buffer, mimeType });
+    if (!texto) return FALLBACK;
+    console.log(`[bridge] áudio transcrito (${texto.length} chars)`);
+    return texto;
+  } catch (err) {
+    console.error('[bridge] falha transcrevendo áudio:', err.message);
+    return FALLBACK;
+  }
+}
 
 async function processarSeLeadMudo({ telefone, nome, mensagem, chatid }) {
   if (!supabaseEnabled()) return false;
@@ -443,25 +629,45 @@ async function processarBatch(items) {
     return;
   }
 
-  if (N8N_OUT_WEBHOOK_URL) {
-    // Registra ANTES de enviar pra cobrir webhook que volta antes da response.
-    registrarOutboundDoBridge({ telefone, conteudo: resposta });
-    const payload = { telefone, resposta, lead_id: lead?.id ?? null, chatid, passo: null, modo_no_momento: lead?.modo ?? 'bot' };
+  let messageId = null;
+  // Só grava/espelha o que o lead realmente recebeu. Gravar uma fala não
+  // entregue faria o histórico do próximo prompt afirmar que o Lúcio já disse
+  // aquilo, e o closer veria no Chatwoot uma mensagem que nunca chegou.
+  // A qualificação lá embaixo NÃO depende disso: ela julga o que o LEAD disse.
+  let entregue = true;
+  if (iaSolutionEnabled()) {
+    // Registra ANTES de enviar pra cobrir eco que volta antes da response.
+    // Sai pela API oficial E é espelhada no Chatwoot: eco pelos dois lados.
+    registrarOutboundDoBridge({ telefone, conteudo: resposta, canais: ['whatsapp', 'chatwoot'] });
     try {
-      const r = await fetch(N8N_OUT_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) console.error(`[bridge] WF-Lucio-OUT respondeu ${r.status}`);
+      const r = await enviarTextoImediato({ telefone, texto: resposta });
+      messageId = r.messageId;
+      console.log(`[bridge] resposta enviada (msg=${messageId}) telefone=${telefone}`);
     } catch (err) {
-      console.error('[bridge] erro chamando WF-Lucio-OUT:', err);
+      entregue = false;
+      // Sem envio não há eco: solta a marca pra não bloquear um reenvio igual.
+      esquecerOutboundDoBridge({ telefone, conteudo: resposta });
+      // Janela de 24h: o lead escreveu, então ela deveria estar aberta. Se
+      // estourou, é sinal de relógio/estado divergente — vira evento pra
+      // aparecer no diagnóstico em vez de sumir no log.
+      if (err instanceof JanelaExpiradaError) {
+        console.error(`[bridge] janela de 24h fechada respondendo lead ${lead?.id}: ${err.message}`);
+        if (supabaseEnabled() && lead) {
+          await registrarEvento(lead.id, 'envio_bloqueado_janela', { origem: 'inbound', detalhe: err.message }).catch(() => {});
+        }
+      } else {
+        console.error('[bridge] erro enviando resposta pela iaSolution:', err.message);
+        if (supabaseEnabled() && lead) {
+          await registrarEvento(lead.id, 'envio_falhou', { origem: 'inbound', detalhe: err.message?.slice(0, 300) }).catch(() => {});
+        }
+      }
     }
   } else {
-    console.warn('[bridge] N8N_OUT_WEBHOOK_URL não configurada — resposta não saiu pro WhatsApp');
+    // Sem transporte (dev/simulação): segue gravando pra conversa local fluir.
+    console.warn('[bridge] iaSolution não configurada — resposta não saiu pro WhatsApp');
   }
 
-  if (supabaseEnabled() && lead) {
+  if (entregue && supabaseEnabled() && lead) {
     await gravarMensagem({
       lead_id: lead.id,
       chatid,
@@ -469,12 +675,16 @@ async function processarBatch(items) {
       autor: 'ia',
       texto: resposta,
       modo_no_momento: lead.modo,
+      // Guarda o id do WhatsApp: é o que deixa o anti-loop reconhecer o eco
+      // desta mensagem mesmo depois de um restart (o cache em memória morre no
+      // deploy, e deploy é justo quando há mensagem recém-enviada em trânsito).
+      uazapi_message_id: messageId,
       tokens_in: tokensIn,
       tokens_out: tokensOut,
     });
   }
 
-  if (cwCtx?.conversationId) {
+  if (entregue && cwCtx?.conversationId) {
     try {
       await espelharMensagemConversa({ conversationId: cwCtx.conversationId, content: resposta, direction: 'out' });
     } catch (err) {
@@ -482,16 +692,21 @@ async function processarBatch(items) {
     }
   }
 
-  console.log(`[bridge] respondeu telefone=${telefone} tokensIn=${tokensIn} tokensOut=${tokensOut}`);
+  if (entregue) console.log(`[bridge] respondeu telefone=${telefone} tokensIn=${tokensIn} tokensOut=${tokensOut}`);
 
   // Qualificador post-resposta: decide se vira MQL qualificado → handoff.
+  // Roda MESMO se o envio falhou: o handoff julga o que o lead disse e só mexe
+  // em Supabase/Chatwoot (não fala com o lead). Pular por causa de um 500 no
+  // envio deixaria o lead mais quente da fila sem etiqueta e sem closer.
   // Pula se lead já está em handoff (modo=mudo) ou já foi qualificado.
   if (lead && lead.modo !== 'mudo' && lead.status !== 'qualificado' && lead.status !== 'handoff') {
     try {
       const historicoCompleto = supabaseEnabled()
         ? await ultimasMensagensDoLead(lead.id, 30)
         : historico;
-      const q = await avaliarQualificacao({ lead, historico: historicoCompleto, ultimaRespostaLucio: resposta });
+      // Se o envio falhou, o lead nunca viu essa resposta: não pode entrar como
+      // contexto de qualificação.
+      const q = await avaliarQualificacao({ lead, historico: historicoCompleto, ultimaRespostaLucio: entregue ? resposta : null });
       if (q.qualified) {
         console.log(`[bridge] lead ${lead.id} qualificado → handoff (urgencia=${q.urgencia})`);
         await executarHandoff({ lead, qualificacao: q, chatwootCtx: cwCtx });
@@ -547,6 +762,12 @@ async function tratarCentralAutomatica({ lead, telefone, cwCtx, justificativa, c
 // 1) puxa pendentes elegíveis 2) formula toque via Claude SDK
 // 3) POST WF-Lucio-Outbound 4) marca enviado.
 // Body opcional: { limite, dryRun }
+//
+// AINDA NO TRILHO ANTIGO (n8n → uazapi). O inbound já migrou pra API oficial,
+// este caminho não. Migrar exige template aprovado pela Meta: o 1º toque vai
+// pra lead frio, fora da janela de 24h, e lá texto livre não passa.
+// A fila está vazia hoje, então nada dispara por aqui — mas enrolar lead antes
+// de migrar reativa o trilho não-oficial sem querer.
 // ──────────────────────────────────────────────────────────────────────────
 const N8N_OUTBOUND_WEBHOOK_URL = process.env.N8N_OUTBOUND_WEBHOOK_URL;
 // Teto de tentativas por disparo. Acima disso, marca 'falha' e NAO gera mais
@@ -619,7 +840,9 @@ async function processarOutboundBatch({ limite = 50, dryRun = false } = {}) {
 
       let uazapiCampaignId = null;
       if (N8N_OUTBOUND_WEBHOOK_URL) {
-        registrarOutboundDoBridge({ telefone: p.lead.telefone, conteudo: texto });
+        // Só 'chatwoot': este caminho sai por n8n → uazapi, não pela API
+        // oficial, então não volta eco pelo /webhook/iasolution.
+        registrarOutboundDoBridge({ telefone: p.lead.telefone, conteudo: texto, canais: ['chatwoot'] });
         const r = await fetch(N8N_OUTBOUND_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -916,16 +1139,37 @@ app.post('/chatwoot-webhook', express.json({
       return;
     }
 
-    // Dispara via uazapi
-    if (!uazapiEnabled()) {
-      console.error('[bridge] uazapi desabilitada — msg do closer não saiu');
+    // Dispara pela API oficial
+    if (!iaSolutionEnabled()) {
+      console.error('[bridge] iaSolution desabilitada — msg do closer não saiu');
       return;
     }
+    let messageId = null;
     try {
+      // Registra ANTES de enviar: a API oficial ecoa o que sai por ela, e sem
+      // isso o eco da própria mensagem do closer volta como "humano no celular".
+      // Só no canal 'whatsapp': esta mensagem já nasceu no Chatwoot, e marcá-la
+      // lá faria o bridge engolir a repetição legítima do closer e o retry.
+      registrarOutboundDoBridge({ telefone, conteudo, canais: ['whatsapp'] });
       const r = await enviarTextoImediato({ telefone, texto: conteudo });
-      console.log(`[bridge] msg do closer enviada via uazapi (folder=${r.folderId}) telefone=${telefone}`);
+      messageId = r.messageId;
+      console.log(`[bridge] msg do closer enviada (msg=${messageId}) telefone=${telefone}`);
     } catch (err) {
-      console.error('[bridge] uazapi falhou:', err.message);
+      // Sem envio não há eco: solta a marca pra não engolir o retry que a nota
+      // abaixo manda o closer fazer.
+      esquecerOutboundDoBridge({ telefone, conteudo });
+      // O closer precisa saber DENTRO do Chatwoot que a mensagem não saiu. Sem
+      // aviso ele vê a própria fala postada na conversa e assume que o lead
+      // recebeu — vale pra janela de 24h e pra qualquer outra falha.
+      const aviso = err instanceof JanelaExpiradaError
+        ? '⚠️ Mensagem NÃO entregue: passaram mais de 24h desde a última mensagem do lead. A Meta só permite retomar com template aprovado. Aguarde o lead escrever de novo.'
+        : `⚠️ Mensagem NÃO entregue (falha no envio: ${String(err.message).slice(0, 120)}). Tente de novo em instantes; se persistir, avise o time.`;
+      console.error(`[bridge] envio do closer falhou tel=${telefone}: ${err.message}`);
+      const convId = ev.conversation?.id;
+      if (convId) {
+        await addNotaPrivada(convId, aviso)
+          .catch(e => console.error('[bridge] erro avisando closer da falha:', e.message));
+      }
       return;
     }
 
@@ -941,6 +1185,9 @@ app.post('/chatwoot-webhook', express.json({
           autor: 'humano',
           texto: conteudo,
           modo_no_momento: lead.modo,
+          // Mesmo motivo do inbound: sem o id gravado, o eco desta mensagem
+          // depois de um restart volta como fala nova do humano e duplica.
+          uazapi_message_id: messageId,
         });
         if (lead.modo !== 'mudo') {
           await atualizarLead(lead.id, { modo: 'mudo', status: 'handoff' });
@@ -1020,7 +1267,10 @@ app.post('/handoff-return', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[lucio-bridge] escutando em http://localhost:${PORT}`);
-  console.log(`  supabase=${supabaseEnabled()} chatwoot=${chatwootEnabled()} crm=${crmEnabled()} n8n_out=${!!N8N_OUT_WEBHOOK_URL} buffer=${bufferEnabled() ? bufferSeconds()+'s' : 'off'}`);
+  console.log(`  supabase=${supabaseEnabled()} chatwoot=${chatwootEnabled()} crm=${crmEnabled()} whatsapp_oficial=${iaSolutionEnabled()} transcricao=${transcricaoEnabled()} buffer=${bufferEnabled() ? bufferSeconds()+'s' : 'off'}`);
+  if (IASOLUTION_ALLOWLIST.length) console.warn(`  ATENÇÃO: allowlist de teste ativa (${IASOLUTION_ALLOWLIST.length} número(s)) — lead fora dela é ignorado`);
+  if (iaSolutionEnabled() && !IASOLUTION_WEBHOOK_SECRET) console.warn('  ATENÇÃO: /webhook/iasolution SEM secret — endpoint aberto (defina IASOLUTION_WEBHOOK_SECRET)');
+  if (iaSolutionEnabled() && !IASOLUTION_NUMERO_NEGOCIO) console.warn('  ATENÇÃO: IASOLUTION_NUMERO_NEGOCIO vazio — sem trava contra eco vindo do nosso próprio número');
   // Mantém a aba Tráfego fresca sozinha (Meta → trafego_diario a cada ~30min).
   iniciarColetaAutomatica();
 });

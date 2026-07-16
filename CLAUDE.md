@@ -25,12 +25,12 @@ Lúcio é BDR da **Luminus Energia & Engenharia Ltda.** (CNPJ 01.773.012/0001-11
 
 | Camada | Ferramenta |
 |---|---|
-| Cérebro | Claude Agent SDK (Sonnet 4.6) em bridge Node |
-| Transporte WhatsApp | uazapi (instância Luminus dedicada — chip novo) |
-| Mensageria entrada/saída | n8n (instância pessoal Douglas, depois Luminus) |
+| Cérebro | Claude SDK puro (Haiku 4.5) em bridge Node |
+| Transporte WhatsApp | **API oficial (Meta Cloud API via BSP iaSolution)** — uazapi aposentada |
+| Mensageria entrada/saída | **bridge Node direto** (webhook `/webhook/iasolution` → `/messages/text`), sem n8n |
 | Persistência | Supabase (leads, mensagens, cadências, eventos) |
 | CRM espelho | Chatwoot (via MCP — handoff humano + nota privada + label) |
-| Outbound cadenciado | uazapi `/sender/advanced` (jitter nativo) |
+| Outbound cadenciado | **LEGADO**: ainda n8n → uazapi `/sender/advanced`. Migrar exige template HSM aprovado. |
 | Disparo diário | agendador-claudio (cron 08h) → POST bridge `/outbound-batch` |
 | Hospedagem | local Mac na F1, depois Easypanel VPS Luminus |
 
@@ -39,7 +39,7 @@ Lúcio é BDR da **Luminus Energia & Engenharia Ltda.** (CNPJ 01.773.012/0001-11
 O Lúcio é **um agente só** (mesma identidade, mesma voz), mas roda em dois contextos com **superfícies de tools diferentes**. A separação é **arquitetural**, não confiada ao prompt — o cliente no WhatsApp não tem como pedir pro Lúcio mexer no n8n porque as tools n8n nem estão registradas no SDK call de produção.
 
 ### Modo BDR (produção — bridge Node falando com lead via WhatsApp)
-- **Quem fala:** lead, via uazapi → n8n → bridge.
+- **Quem fala:** lead, via API oficial (iaSolution) → bridge, direto.
 - **Tools registradas no Claude Agent SDK:** **só** Supabase (CRUD lead/mensagem/agendamento) + Chatwoot (criar contato/conversa/label/nota privada/handoff).
 - **Tools EXPLICITAMENTE proibidas:** n8n (qualquer instância), Gmail, Gcal, filesystem, shell, web fetch arbitrário.
 - **Implementação:** `src/lucio-agent.js` configura o SDK com `allowedTools` restritivo. Não confiar em prompt — confiar em código.
@@ -114,11 +114,12 @@ Toda mensagem que sai pro **lead** (WhatsApp) ou pro **closer humano** (Chatwoot
 
 1. **Jitter mínimo 3min** entre mensagens outbound do mesmo lote.
 2. **Janela 09h–17h, segunda a sexta.** Fora disso, fila aguarda.
-3. **Modo mudo durante handoff humano:** se `fromMeYes + wasNotSentByApi` no webhook → marcar `autor=humano` no Supabase, NÃO responder, mas gravar tudo.
+3. **Modo mudo durante handoff humano:** mensagem que chega com `direction !== 'inbound'` no envelope da iaSolution (o humano respondeu pelo celular, na coexistência) → marcar `autor=humano` no Supabase, NÃO responder, mas gravar tudo. Antes o sinal era `fromMeYes + wasNotSentByApi` da uazapi. **Só vale depois de descartar o eco** (regra 5): sem isso, a mensagem do próprio Lúcio dispara o modo mudo.
 4. **Devolução pro bot:** label `devolver-lucio` no Chatwoot → webhook → bridge volta a responder.
-5. **Filtro anti-loop:** webhook uazapi com `excludeMessages: wasSentByApi` (capturar mensagem humana, ignorar API).
+5. **Filtro anti-loop:** a API oficial **ecoa o que sai por ela**, e não tem o `excludeMessages: wasSentByApi` que a uazapi tinha (o filtro era do provedor; agora é nosso). O bridge reconhece o eco em duas camadas: (1) `uazapi_message_id` gravado no Supabase, que sobrevive a restart de deploy; (2) cache `telefone+conteúdo` em memória (90s), pro envio ainda não gravado. Falhar aqui = Lúcio trata a própria mensagem como fala de humano e **entra em modo mudo sozinho, sem alerta**.
 6. **Sem promessa de preço/prazo/disponibilidade** sem closer humano confirmar.
-7. **Aquecimento do chip:** 2-3 semanas antes de soltar outbound em volume.
+7. **Aquecimento do chip:** 2-3 semanas antes de soltar outbound em volume. (Herdado da uazapi; na API oficial quem limita é o tier de qualidade da Meta.)
+8. **Janela de 24h (API oficial):** texto livre só sai até 24h depois da última mensagem do lead. Fora dela, **só template HSM aprovado pela Meta**. Vale pro Lúcio, pro closer no Chatwoot e pro watchdog. Não existe contorno: o bloqueio é da Meta, não nosso.
 
 ## Como o Douglas trabalha (neste repo)
 

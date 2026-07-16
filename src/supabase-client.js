@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { espelharTransicao, adicionarNotaCard } from './crm-client.js';
+import { normalizaTelefone, variantesTelefone } from './telefone.js';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -20,33 +21,10 @@ function ensure() {
   if (!supabase) throw new Error('Supabase não configurado: defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY no .env');
 }
 
-// Persistimos sempre em E.164 com `+` na frente. uazapi entrega sem `+`,
-// Chatwoot entrega com `+` — sem normalizar, mesmo número vira 2 leads.
-export function normalizaTelefone(telefone) {
-  if (!telefone) return telefone;
-  const t = String(telefone).trim();
-  if (t.startsWith('+')) return t;
-  const digits = t.replace(/\D/g, '');
-  return digits ? '+' + digits : t;
-}
-
-// Gera as variantes BR de um número (com e SEM o 9º dígito de celular).
-// O WhatsApp entrega o mesmo celular ora com 13 dígitos (+55 DD 9 XXXXXXXX),
-// ora com 12 (+55 DD XXXXXXXX). Sem reconciliar, cada forma vira um lead/contato
-// distinto. Esta função devolve todas as formas equivalentes pra casar no lookup.
-export function variantesTelefone(telefone) {
-  const norm = normalizaTelefone(telefone);
-  if (!norm || !norm.startsWith('+')) return [norm].filter(Boolean);
-  const d = norm.slice(1);
-  const set = new Set([norm]);
-  if (d.startsWith('55')) {
-    const ddd = d.slice(2, 4);
-    const sub = d.slice(4);
-    if (sub.length === 9 && sub[0] === '9') set.add('+55' + ddd + sub.slice(1)); // tem 9 → sem 9
-    else if (sub.length === 8) set.add('+55' + ddd + '9' + sub);                  // sem 9 → com 9
-  }
-  return [...set];
-}
+// Helpers de telefone moram em ./telefone.js (compartilhados com chatwoot-client
+// sem fechar ciclo de import). Re-exportados aqui porque o resto do bridge já os
+// importa deste módulo.
+export { normalizaTelefone, variantesTelefone };
 
 export async function buscarLeadPorTelefone(telefone) {
   ensure();
@@ -82,6 +60,23 @@ export async function gravarMensagem({ lead_id, chatid, direcao, autor, texto, p
   }).select().single();
   if (error) throw error;
   return data;
+}
+
+// Anti-loop durável: a API oficial ecoa o que sai por ela, e o cache em memória
+// do chatwoot-client morre a cada deploy. Se o id do eco é de uma mensagem que
+// nós gravamos, a "fala do humano" é a nossa própria voltando.
+export async function mensagemNossaComMessageId(messageId) {
+  if (!messageId || !supabase) return false;
+  const { data, error } = await supabase
+    .from('mensagens')
+    .select('id')
+    .eq('uazapi_message_id', String(messageId))
+    .limit(1);
+  if (error) {
+    console.error('[supabase] erro checando message_id do eco:', error.message);
+    return false; // na dúvida, deixa o cache em memória decidir
+  }
+  return !!data?.length;
 }
 
 export async function ultimasMensagensDoLead(lead_id, limit = 30) {
