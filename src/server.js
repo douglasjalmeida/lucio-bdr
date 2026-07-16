@@ -1001,6 +1001,10 @@ if (WATCHDOG_TICK > 0) {
 // ──────────────────────────────────────────────────────────────────────────
 const CHATWOOT_WEBHOOK_SECRET = process.env.CHATWOOT_WEBHOOK_SECRET || '';
 
+// Inbox do Lúcio no Chatwoot. O webhook do Chatwoot é da CONTA inteira, então
+// é isto que separa o que é nosso do que é do Bruno (inbox 3).
+const INBOX_ID = parseInt(process.env.CHATWOOT_INBOX_ID || '0', 10) || null;
+
 function verificarHmacChatwoot(req, rawBody) {
   if (!CHATWOOT_WEBHOOK_SECRET) return true; // opcional
   const recv = req.headers['x-chatwoot-hmac-sha256'];
@@ -1022,6 +1026,18 @@ app.post('/chatwoot-webhook', express.json({
     }
 
     const ev = req.body || {};
+
+    // O Chatwoot da Luminus tem mais de uma inbox (1 = WhatsApp Lucio,
+    // 3 = Bruno - SDR) e o webhook é da CONTA, não da inbox: sem este filtro o
+    // bridge reenvia pelo canal do Lúcio o que o Bruno responde no dele, e o
+    // lead recebe do número errado (ou duas vezes). Ficou dormente enquanto a
+    // uazapi estava morta e acordou quando a API oficial voltou a entregar.
+    const inboxDoEvento = ev.inbox?.id ?? ev.conversation?.inbox_id ?? null;
+    if (INBOX_ID && inboxDoEvento && inboxDoEvento !== INBOX_ID) {
+      console.log(`[bridge] chatwoot-webhook ignora inbox ${inboxDoEvento} (a nossa é ${INBOX_ID})`);
+      return;
+    }
+
     const eventName = ev.event;
 
     // conversation_updated: Chatwoot dispara quando labels mudam.
