@@ -61,7 +61,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const app = express();
-app.use(express.json({ limit: '5mb' }));
+// Guarda o corpo cru: validar HMAC exige os bytes exatos que o provedor assinou,
+// e depois do parse eles não existem mais. Precisa ser AQUI, no parser global —
+// um express.json() por rota não reparseia (body-parser marca req._body e sai),
+// então o `verify` dele nunca rodaria e o rawBody chegaria vazio.
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 
 const PORT = parseInt(process.env.PORT || '8788', 10);
 
@@ -316,15 +323,24 @@ function permitidoPelaAllowlist(telefone) {
 const IASOLUTION_NUMERO_NEGOCIO = String(process.env.IASOLUTION_NUMERO_NEGOCIO || '').replace(/\D/g, '');
 
 // Secret do webhook. Vazio = endpoint aberto (o n8n era o front door antes).
+//
+// A iaSolution assina o payload com HMAC SHA-256 e manda em X-Hub-Signature-256
+// (padrão Meta), no formato `sha256=<hex>`. Não existe header customizado no
+// painel dela — então é assinatura ou nada. Mesmo esquema do /chatwoot-webhook.
 const IASOLUTION_WEBHOOK_SECRET = process.env.IASOLUTION_WEBHOOK_SECRET || '';
 
-// Só por header: secret em query string vaza no access log do Easypanel, em
-// proxy e em qualquer ferramenta do caminho.
-function segredoConfere(req) {
+function assinaturaConfere(req, rawBody) {
   if (!IASOLUTION_WEBHOOK_SECRET) return true;
-  const a = Buffer.from(String(req.get('x-webhook-secret') || ''));
-  const b = Buffer.from(IASOLUTION_WEBHOOK_SECRET);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const recebido = String(req.get('x-hub-signature-256') || '');
+  if (!recebido) return false;
+  const calculado = 'sha256=' + crypto
+    .createHmac('sha256', IASOLUTION_WEBHOOK_SECRET)
+    .update(rawBody || '')
+    .digest('hex');
+  // timingSafeEqual exige mesmo tamanho: compara hash dos dois lados.
+  const a = crypto.createHash('sha256').update(recebido).digest();
+  const b = crypto.createHash('sha256').update(calculado).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 // Acha o contato correspondente à mensagem. Num lote com leads diferentes,
@@ -375,8 +391,8 @@ function parseMensagemIaSolution(m, contato) {
 }
 
 app.post('/webhook/iasolution', async (req, res) => {
-  if (!segredoConfere(req)) {
-    console.warn('[bridge] iasolution: webhook com secret inválido — rejeitado');
+  if (!assinaturaConfere(req, req.rawBody)) {
+    console.warn('[bridge] iasolution: webhook com assinatura HMAC inválida — rejeitado');
     return res.status(401).json({ ok: false });
   }
   res.json({ ok: true });
