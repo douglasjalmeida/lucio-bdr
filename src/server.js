@@ -236,7 +236,14 @@ app.get('/health', (_req, res) => {
     supabase: supabaseEnabled(),
     chatwoot: chatwootEnabled(),
     crm: crmEnabled(),
-    build: 'ura-anota-nao-responde',
+    // Sem transporte o Lúcio fica mudo sem erro aparente, e o .env do repo NÃO
+    // vai pro container (as vars vêm do painel). Expor aqui deixa o deploy
+    // verificável de fora, sem precisar abrir log.
+    whatsapp_oficial: iaSolutionEnabled(),
+    transcricao: transcricaoEnabled(),
+    webhook_protegido: !!IASOLUTION_WEBHOOK_SECRET,
+    allowlist_teste: IASOLUTION_ALLOWLIST.length || 0,
+    build: 'iasolution-inbound',
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
     model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
     timestamp: new Date().toISOString(),
