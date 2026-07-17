@@ -334,18 +334,38 @@ const IASOLUTION_NUMERO_NEGOCIO = String(process.env.IASOLUTION_NUMERO_NEGOCIO |
 // painel dela — então é assinatura ou nada. Mesmo esquema do /chatwoot-webhook.
 const IASOLUTION_WEBHOOK_SECRET = process.env.IASOLUTION_WEBHOOK_SECRET || '';
 
+function mesmoValor(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// Tolerante ao formato: provedor varia entre `sha256=<hex>`, `<hex>` puro e
+// base64. O segredo é o mesmo nos três — só muda a embalagem, e recusar por
+// causa dela derrubaria o inbound inteiro.
 function assinaturaConfere(req, rawBody) {
   if (!IASOLUTION_WEBHOOK_SECRET) return true;
-  const recebido = String(req.get('x-hub-signature-256') || '');
-  if (!recebido) return false;
-  const calculado = 'sha256=' + crypto
-    .createHmac('sha256', IASOLUTION_WEBHOOK_SECRET)
-    .update(rawBody || '')
-    .digest('hex');
-  // timingSafeEqual exige mesmo tamanho: compara hash dos dois lados.
-  const a = crypto.createHash('sha256').update(recebido).digest();
-  const b = crypto.createHash('sha256').update(calculado).digest();
-  return crypto.timingSafeEqual(a, b);
+  // Nunca deixa exceção subir: isto roda fora do try do handler, e num handler
+  // async o throw vira unhandled rejection — ou seja, derrubaria o processo a
+  // cada webhook.
+  try {
+    const recebido = String(req.get('x-hub-signature-256') || req.get('x-hub-signature') || '').trim();
+    if (!recebido) return false;
+
+    const limpo = recebido.replace(/^sha256=/i, '').trim();
+    const hex = crypto.createHmac('sha256', IASOLUTION_WEBHOOK_SECRET).update(rawBody || '').digest('hex');
+    const b64 = crypto.createHmac('sha256', IASOLUTION_WEBHOOK_SECRET).update(rawBody || '').digest('base64');
+
+    if (mesmoValor(limpo, hex) || mesmoValor(limpo, b64)) return true;
+
+    // Falhou: registra o suficiente pra distinguir "secret errado" de "formato
+    // inesperado", sem imprimir o secret nem a assinatura inteira.
+    console.warn(`[bridge] iasolution HMAC não bateu — recebido=${limpo.slice(0, 10)}...(${limpo.length} chars) esperado_hex=${hex.slice(0, 10)}...(${hex.length}) corpo=${(rawBody || '').length} bytes`);
+    return false;
+  } catch (err) {
+    console.error('[bridge] erro validando HMAC da iaSolution:', err.message);
+    return false;
+  }
 }
 
 // Acha o contato correspondente à mensagem. Num lote com leads diferentes,
