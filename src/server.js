@@ -250,6 +250,7 @@ app.get('/health', (_req, res) => {
     transcricao: transcricaoEnabled(),
     webhook_protegido: !!IASOLUTION_WEBHOOK_SECRET,
     allowlist_teste: IASOLUTION_ALLOWLIST.length || 0,
+    webhook_iasolution: { ...webhookStats },
     build: 'iasolution-inbound',
     bufferSeconds: bufferEnabled() ? bufferSeconds() : 0,
     model: process.env.LUCIO_MODEL || 'claude-haiku-4-5-20251001',
@@ -316,6 +317,10 @@ function permitidoPelaAllowlist(telefone) {
   const variantes = new Set(variantesTelefone(telefone).map(v => String(v).replace(/\D/g, '')));
   return IASOLUTION_ALLOWLIST.some(a => variantes.has(a.replace(/\D/g, '')));
 }
+
+// Telemetria do webhook: sem isso, "a iaSolution não chamou" e "chamou e nós
+// recusamos" são indistinguíveis de fora, e o diagnóstico vira troca de print.
+const webhookStats = { recebidos: 0, rejeitados: 0, ultimoEm: null, ultimasChaves: null };
 
 // Número do próprio canal (o WhatsApp da Luminus), E.164 sem +. Serve de trava:
 // nenhum evento cujo remetente seja a gente mesmo pode virar lead ou fala de
@@ -399,8 +404,13 @@ app.post('/webhook/iasolution', async (req, res) => {
   const body = req.body || {};
   const temMensagem = Array.isArray(body.messages) && body.messages.length > 0;
 
+  webhookStats.recebidos++;
+  webhookStats.ultimoEm = new Date().toISOString();
+  webhookStats.ultimasChaves = Object.keys(body).join(',') || '(vazio)';
+
   // Só o que age exige assinatura. Ping/status não mexem em lead nenhum.
   if (temMensagem && !assinaturaConfere(req, req.rawBody)) {
+    webhookStats.rejeitados++;
     console.warn('[bridge] iasolution: webhook com assinatura HMAC inválida — rejeitado');
     return res.status(401).json({ ok: false });
   }
