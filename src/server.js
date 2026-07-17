@@ -320,7 +320,55 @@ function permitidoPelaAllowlist(telefone) {
 
 // Telemetria do webhook: sem isso, "a iaSolution não chamou" e "chamou e nós
 // recusamos" são indistinguíveis de fora, e o diagnóstico vira troca de print.
-const webhookStats = { recebidos: 0, rejeitados: 0, ultimoEm: null, ultimasChaves: null };
+//
+// `ultimaMensagem` é separado de `ultimasChaves` de propósito: o evento de
+// status chega DEPOIS da mensagem e sobrescreveria a única pista do envelope
+// que interessa (o status é sempre o último a falar).
+const webhookStats = {
+  recebidos: 0, rejeitados: 0, ultimoEm: null, ultimasChaves: null,
+  ultimaMensagem: null,
+};
+
+// Radiografia de uma mensagem do envelope, pro /health. Só NOMES de campo e
+// valores não-sensíveis: nada de texto, telefone ou id — o /health é lido por
+// gente que não deveria ver conversa de lead.
+//
+// Existe porque a classificação inbound-vs-eco (parseMensagemIaSolution) aposta
+// num campo `direction` que nenhuma doc pública da iaSolution descreve. Se ele
+// não vier, o default é 'inbound' e a fala do humano vira fala de lead — o Lúcio
+// responde por cima do closer. `direction` cru aqui é o que confirma ou desmente.
+function radiografiaMensagem(m, evento) {
+  const campos = Object.keys(m || {}).sort();
+  return {
+    campos: campos.join(','),
+    // Um nível abaixo nos objetos: é onde a Meta esconde text.body, audio.id e,
+    // se existir, o marcador de eco por outro nome.
+    subcampos: campos
+      .filter(k => m[k] && typeof m[k] === 'object' && !Array.isArray(m[k]))
+      .map(k => `${k}{${Object.keys(m[k]).sort().join('|')}}`)
+      .join(' ') || '(nenhum)',
+    tipo: m?.type || '(ausente)',
+    direction_cru: m?.direction ?? '(AUSENTE)',
+    // Independe de `direction`: se o remetente é o nosso número, a mensagem saiu
+    // de nós — é eco, não importa como o provedor rotule.
+    from_e_nosso_numero: !!(IASOLUTION_NUMERO_NEGOCIO && m?.from
+      && chaveTelefone(m.from) === chaveTelefone(IASOLUTION_NUMERO_NEGOCIO)),
+    // "no_parse" e não "classificado": o autor aqui é só o palpite inicial. O
+    // evento ainda pode morrer na trava do número próprio, na allowlist ou no
+    // anti-loop — ler isto como "entrou no fluxo" seria erro de diagnóstico.
+    autor_no_parse: evento?.autor || '(descartado no parse)',
+  };
+}
+
+// Diagnóstico não pode derrubar o caminho principal: se a radiografia lançar,
+// a mensagem do lead ficaria sem resposta por causa do instrumento de medição.
+function radiografarSeguro(m, evento) {
+  try {
+    return radiografiaMensagem(m, evento);
+  } catch (err) {
+    return { erro: `radiografia falhou: ${err.message}` };
+  }
+}
 
 // Número do próprio canal (o WhatsApp da Luminus), E.164 sem +. Serve de trava:
 // nenhum evento cujo remetente seja a gente mesmo pode virar lead ou fala de
@@ -438,6 +486,15 @@ app.post('/webhook/iasolution', async (req, res) => {
       // pode vir por outro caminho). Com header = o secret é que difere.
       tinha_assinatura: !!(req.get('x-hub-signature-256') || req.get('x-hub-signature')),
       tipos: (body.messages || []).map(m => `${m?.type || '?'}/${m?.direction || 'inbound'}`).join(','),
+      // Radiografa aqui também, senão o evento que MOTIVOU a telemetria pode
+      // nunca chegar nela: se o eco vier não-assinado, morre neste 401 e a gente
+      // fica olhando o /health esperando algo que foi barrado na porta.
+      mensagens: (body.messages || []).map(m => ({
+        ...radiografarSeguro(m, null),
+        // Aqui o parse nem rodou. Sem isto, o /health diria "(descartado no
+        // parse)" e mandaria quem diagnostica caçar bug no parse, não no secret.
+        autor_no_parse: '(rejeitado antes do parse)',
+      })),
     };
     console.warn(`[bridge] iasolution: assinatura HMAC inválida — rejeitado (assinado=${webhookStats.ultimaRejeicao.tinha_assinatura} tipos=${webhookStats.ultimaRejeicao.tipos})`);
     return res.status(401).json({ ok: false });
@@ -474,6 +531,13 @@ app.post('/webhook/iasolution', async (req, res) => {
 
 async function processarMensagemIaSolution(m, contato) {
   const evento = parseMensagemIaSolution(m || {}, contato || {});
+
+  // Antes de qualquer descarte: é justamente o evento descartado (eco, envelope
+  // torto) que a gente precisa enxergar, e ele nunca chega no resto do fluxo.
+  const raio = radiografarSeguro(m || {}, evento);
+  webhookStats.ultimaMensagem = { em: new Date().toISOString(), ...raio };
+  console.log(`[bridge] iasolution msg: tipo=${raio.tipo} direction=${raio.direction_cru} from_nosso=${raio.from_e_nosso_numero} autor=${raio.autor_no_parse} campos=[${raio.campos}]`);
+
   if (!evento) return;
 
   if (IASOLUTION_NUMERO_NEGOCIO && chaveTelefone(evento.telefone) === chaveTelefone(IASOLUTION_NUMERO_NEGOCIO)) {
