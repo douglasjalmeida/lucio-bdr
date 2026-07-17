@@ -108,8 +108,11 @@ export async function conversaAbertaDoContato(contactId) {
   if (!enabled) return null;
   const res = await call('GET', `/contacts/${contactId}/conversations`);
   const lista = res?.payload || [];
-  // tenta encontrar conversa no nosso inbox + status open
-  const open = lista.find(c => (c.inbox_id === INBOX_ID || c.meta?.channel) && c.status === 'open');
+  // SÓ a nossa inbox. O `|| c.meta?.channel` que existia aqui anulava o filtro
+  // (qualquer conversa com canal casava, de qualquer inbox): um contato que já
+  // falava com o Bruno na inbox dele fazia o Lúcio escrever LÁ, e as labels e o
+  // pipeline iam junto pro lugar errado.
+  const open = lista.find(c => c.inbox_id === INBOX_ID && c.status === 'open');
   return open || null;
 }
 
