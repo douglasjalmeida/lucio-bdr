@@ -60,7 +60,15 @@ async function chamar(caminho, { method = 'POST', body = null } = {}) {
 export async function enviarTextoImediato({ telefone, texto }) {
   const to = normalizaTelefoneE164SemMais(telefone);
   const json = await chamar('/messages/text', { body: { to, text: texto } });
-  const messageId = json?.messages?.[0]?.id || json?.message_id || json?.id || null;
+  // A iaSolution devolve { success, data: { message_id } }. As outras formas
+  // ficam de reserva. Perder este id cega o anti-loop durável: sem ele gravado,
+  // o eco depois de um restart volta como fala de humano e muta o Lúcio.
+  const messageId = json?.data?.message_id
+    || json?.messages?.[0]?.id
+    || json?.message_id
+    || json?.id
+    || null;
+  if (!messageId) console.warn(`[iasolution] envio sem message_id no retorno — chaves=${Object.keys(json || {}).join(',')}`);
   return { messageId, raw: json };
 }
 

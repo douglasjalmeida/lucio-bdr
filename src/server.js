@@ -431,7 +431,15 @@ app.post('/webhook/iasolution', async (req, res) => {
   // Só o que age exige assinatura. Ping/status não mexem em lead nenhum.
   if (temMensagem && !assinaturaConfere(req, req.rawBody)) {
     webhookStats.rejeitados++;
-    console.warn('[bridge] iasolution: webhook com assinatura HMAC inválida — rejeitado');
+    webhookStats.ultimaRejeicao = {
+      em: webhookStats.ultimoEm,
+      chaves: webhookStats.ultimasChaves,
+      // Sem header = o provedor não assinou ESTE evento (ex: eco do celular
+      // pode vir por outro caminho). Com header = o secret é que difere.
+      tinha_assinatura: !!(req.get('x-hub-signature-256') || req.get('x-hub-signature')),
+      tipos: (body.messages || []).map(m => `${m?.type || '?'}/${m?.direction || 'inbound'}`).join(','),
+    };
+    console.warn(`[bridge] iasolution: assinatura HMAC inválida — rejeitado (assinado=${webhookStats.ultimaRejeicao.tinha_assinatura} tipos=${webhookStats.ultimaRejeicao.tipos})`);
     return res.status(401).json({ ok: false });
   }
   res.json({ ok: true });
@@ -511,10 +519,17 @@ async function transcreverPtt({ audioId, downloadUrl }) {
     console.warn('[bridge] GROQ_API_KEY ausente — áudio não transcrito');
     return FALLBACK;
   }
+  // Diz de onde vem a mídia: se o webhook não mandar download_url, caímos no
+  // /media/{id}/download — e se faltarem os dois, o áudio nem tenta.
+  console.log(`[bridge] transcrevendo áudio: url=${downloadUrl ? 'do webhook' : 'ausente'} id=${audioId || '-'}`);
   try {
     const { buffer, mimeType } = await baixarMidia({ mediaId: audioId, downloadUrl });
+    console.log(`[bridge] áudio baixado: ${buffer.length} bytes, mime=${mimeType}`);
     const texto = await transcreverAudio({ buffer, mimeType });
-    if (!texto) return FALLBACK;
+    if (!texto) {
+      console.warn('[bridge] Groq devolveu transcrição vazia');
+      return FALLBACK;
+    }
     console.log(`[bridge] áudio transcrito (${texto.length} chars)`);
     return texto;
   } catch (err) {
